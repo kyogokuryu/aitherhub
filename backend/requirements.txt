@@ -12,6 +12,7 @@ azure-identity==1.16.0
 
 # ---- Data & config ----
 pydantic==2.6.3
+pydantic[email]==2.6.3
 pydantic-settings==2.2.1
 python-dotenv==1.0.1
 
@@ -26,3 +27,6 @@ tenacity==8.2.3
 sqlalchemy>=2.0
 asyncpg>=0.29.0
 alembic>=1.12.0
+
+# ---- Password hashing ----
+passlib[bcrypt]==1.7.4

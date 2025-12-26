@@ -7,4 +7,19 @@ export default defineConfig({
   build: {
     outDir: "dist",
   },
+  // server: {
+  //   host: "0.0.0.0",
+  //   // hosts: true,
+  //   port: 5173,
+  //   strictPort: true,
+  //   watch: {
+  //     usePolling: true,
+  //   },
+  //   proxy: {
+  //     "/api": {
+  //       target: "http://backend:8000",
+  //       changeOrigin: true,
+  //     },
+  //   },
+  // },
 });
