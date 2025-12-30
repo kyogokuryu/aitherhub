@@ -15,7 +15,6 @@ class Configs(BaseSettings):
     ENV: str = os.getenv("ENV", "dev")
     API: str = "/api"
     API_V1_STR: str = "/api/v1"
-    API_V2_STR: str = "/api/v2"
     PROJECT_NAME: str = "fca-api"
     ENV_DATABASE_MAPPER: Dict[str, str] = {
         "prod": "fca",
