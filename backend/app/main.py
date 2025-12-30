@@ -1,52 +1,42 @@
-from datetime import datetime
-from fastapi import FastAPI, HTTPException, UploadFile, File
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 
-from app.services.storage_service import generate_upload_sas
-
-app = FastAPI()
-
-# Enable CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins (can be restricted to specific domains)
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+from app.api.v1.routes import v1_router
+from app.util.class_object import singleton
 
 
-class GenerateUploadURLRequest(BaseModel):
-    filename: str | None = None
-    video_id: str | None = None
+@singleton
+class AppCreator:
+    """FastAPI application creator with singleton pattern"""
 
-
-# ============= SAS UPLOAD (Azure SDK client-side) =============
-
-@app.post("/videos/generate-upload-url")
-async def generate_upload_url(payload: GenerateUploadURLRequest):
-    """Generate a short-lived SAS upload URL for direct blob upload.
-    
-    Client uses Azure SDK (JavaScript/Python/etc) to upload file directly to Azure Blob Storage.
-    
-    Example flow:
-    1. POST /videos/generate-upload-url → get {video_id, upload_url, expires_at}
-    2. Client: Use Azure SDK to upload file to upload_url (direct to Azure, not backend)
-    3. Client: POST /videos/{video_id}/complete → backend creates Video/Job records
-    """
-    try:
-        vid, upload_url, blob_url, expiry = await generate_upload_sas(
-            video_id=payload.video_id,
-            filename=payload.filename,
+    def __init__(self):
+        self.app = FastAPI(
+            title="LiveBoost AI API",
+            version="0.1.0",
+            description="Video analytics and processing API",
         )
-    except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"Failed to generate upload URL: {exc}")
 
-    return {
-        "video_id": vid,
-        "upload_url": upload_url,
-        "expires_at": expiry.isoformat(),
-    }
+        # Configure CORS
+        self.app.add_middleware(
+            CORSMiddleware,
+            allow_origins=["*"],
+            allow_credentials=True,
+            allow_methods=["*"],
+            allow_headers=["*"],
+        )
+
+        # Health check endpoint
+        @self.app.get("/")
+        def root():
+            return {"message": "service is working"}
+
+        # Include routers
+        self.app.include_router(v1_router)
+
+
+# Create app instance
+app_creator = AppCreator()
+app = app_creator.app
+
 
 

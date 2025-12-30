@@ -37,7 +37,7 @@ export default function MainContent({ children, onOpenSidebar, user, setUser }) 
     setProgress(0);
 
     try {
-      const response = await fetch("http://localhost:8000/videos/generate-upload-url", {
+      const response = await fetch("/api/v1/videos/generate-upload-url", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ filename: selectedFile.name }),
