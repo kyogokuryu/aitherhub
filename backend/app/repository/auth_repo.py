@@ -1,4 +1,4 @@
-# app/repositories/auth_repo.py
+# app/repository/auth_repo.py
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select

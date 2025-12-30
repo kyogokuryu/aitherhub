@@ -1,6 +1,7 @@
 # ---- Core web ----
 fastapi==0.110.0
 uvicorn[standard]==0.29.0
+dependency-injector==4.41.0
 
 # ---- Upload / form ----
 python-multipart==0.0.9

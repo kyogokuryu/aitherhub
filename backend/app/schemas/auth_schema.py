@@ -9,6 +9,11 @@ class RegisterRequest(BaseModel):
         orm_mode = True
 
 
+class LoginRequest(BaseModel):
+    email: EmailStr
+    password: str
+
+
 class ChangePasswordRequest(BaseModel):
     current_password: str
     new_password: constr(min_length=8)

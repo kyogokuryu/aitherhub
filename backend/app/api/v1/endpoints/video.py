@@ -3,7 +3,9 @@ from fastapi import APIRouter, UploadFile
 from app.services.storage_service import upload_to_blob
 from app.services.queue_service import enqueue_job
 
-router = APIRouter(prefix="/videos", tags=["videos"])
+router = APIRouter(
+    tags=["videos"],
+)
 
 
 @router.post("/upload")
@@ -15,3 +17,4 @@ async def upload_video(file: UploadFile):
         "job_id": job_id,
         "blob_url": blob_url,
     }
+

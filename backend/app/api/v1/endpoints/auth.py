@@ -4,18 +4,18 @@ import logging
 
 from app.core.db import get_db
 from app.core.dependencies import get_current_user
-from app.repositories.auth_repo import (
+from app.repository.auth_repo import (
     get_user_by_email,
     create_user_with_password,
     update_user_password,
     verify_user_password,
 )
-from app.schemas.auth import RegisterRequest, ChangePasswordRequest
+from app.schemas.auth_schema import RegisterRequest, LoginRequest, ChangePasswordRequest
 from app.utils.jwt import create_access_token, create_refresh_token
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/auth", tags=["auth"])
+router = APIRouter()
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
@@ -52,12 +52,64 @@ async def register(
     }
 
 
-@router.get("/me")
-async def get_current_user_info(current_user: dict = Depends(get_current_user)):
+@router.post("/login")
+async def login(
+    payload: LoginRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Login endpoint - authenticate user and return JWT tokens
+    """
+    user = await get_user_by_email(db, payload.email)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    valid = await verify_user_password(db, payload.email, payload.password)
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+        )
+
+    access_token = create_access_token(str(user.id))
+    refresh_token = create_refresh_token(str(user.id))
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+    }
+
+
+
+@router.get("/me", status_code=status.HTTP_200_OK)
+async def get_current_user_info(
+    current_user: dict = Depends(get_current_user),
+    ):
     """
     Get current user information from JWT token
     """
-    return current_user
+    if not current_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Unauthorized",
+        )
+
+    return {
+        "success": True,
+        "data": current_user,
+    }
+
+
+@router.post("/logout")
+async def logout(current_user: dict = Depends(get_current_user)):
+    """
+    Logout endpoint - client should clear tokens
+    """
+    return {"message": "Logged out successfully"}
 
 
 @router.post("/change-password")
