@@ -1,12 +1,8 @@
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import video
+from app.api.v1.endpoints.auth import router as auth_router
+from app.api.v1.endpoints.video import router as video_router
 
-routers = APIRouter(prefix="/api/v1")
-router_list = [video.router]
-
-for router in router_list:
-	router.tags = (router.tags or []) + ["v1"]
-	routers.include_router(router)
-
-v1_router = routers
+routers = APIRouter()
+routers.include_router(auth_router, prefix="/auth", tags=["Auth"])
+routers.include_router(video_router, prefix="/videos")

@@ -1,42 +1,51 @@
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.cors import CORSMiddleware
 
-from app.api.v1.routes import v1_router
-from app.util.class_object import singleton
+from app.api.v1.routes import routers as v1_routers
+from app.core.config import configs
+from app.core.container import Container
+from app.utils.class_object import singleton
 
 
 @singleton
 class AppCreator:
-    """FastAPI application creator with singleton pattern"""
-
     def __init__(self):
+        # Init FastAPI
         self.app = FastAPI(
-            title="LiveBoost AI API",
-            version="0.1.0",
-            description="Video analytics and processing API",
+            title=configs.PROJECT_NAME,
+            version="0.0.1",
+            openapi_url=f"{configs.API_V1_STR}/openapi.json",
         )
 
-        # Configure CORS
-        self.app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
+        # Init DI container & DB
+        self.container = Container()
+        self.container.wire(modules=[__name__])
+        self.db = self.container.db()
+        # self.db.create_database()
 
-        # Health check endpoint
+        # CORS
+        if configs.BACKEND_CORS_ORIGINS:
+            self.app.add_middleware(
+                CORSMiddleware,
+                allow_origins=[str(origin) for origin in configs.BACKEND_CORS_ORIGINS],
+                allow_credentials=True,
+                allow_methods=["*"],
+                allow_headers=["*"],
+            )
+
+        # Health check
         @self.app.get("/")
-        def root():
-            return {"message": "service is working"}
+        async def root():
+            return {"status": "service is working"}
 
-        # Include routers
-        self.app.include_router(v1_router)
+        # API v1 routes
+        self.app.include_router(
+            v1_routers,
+            prefix=configs.API_V1_STR,
+        )
 
 
-# Create app instance
 app_creator = AppCreator()
 app = app_creator.app
-
-
-
+db = app_creator.db
+container = app_creator.container

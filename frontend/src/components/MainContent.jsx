@@ -1,7 +1,8 @@
 import { Header, Body, Footer } from "./main";
 import uploadIcon from "../assets/upload.png";
 import { useState } from "react";
-import { BlockBlobClient } from "@azure/storage-blob";
+import UploadService from "../base/services/uploadService";
+import { toast } from "react-toastify";
 
 export default function MainContent({ children, onOpenSidebar, user, setUser }) {
   const [selectedFile, setSelectedFile] = useState(null);
@@ -27,8 +28,7 @@ export default function MainContent({ children, onOpenSidebar, user, setUser }) 
 
   const handleUpload = async () => {
     if (!selectedFile) {
-      setMessageType("error");
-      setMessage("Please select a file first");
+      toast.error("Please select a file first");
       return;
     }
 
@@ -37,34 +37,19 @@ export default function MainContent({ children, onOpenSidebar, user, setUser }) 
     setProgress(0);
 
     try {
-      const response = await fetch("/api/v1/videos/generate-upload-url", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filename: selectedFile.name }),
-      });
-
-      if (!response.ok) throw new Error(`Failed: ${response.statusText}`);
-
-      const data = await response.json();
-      const { video_id, upload_url } = data;
-
-      setMessage("Uploading...");
-
-      const blockBlobClient = new BlockBlobClient(upload_url);
-      await blockBlobClient.uploadBrowserData(selectedFile, {
-        blockSize: 50 * 1024 * 1024,
-        concurrency: 4,
-        onProgress: (e) => {
-          setProgress(Math.round((e.loadedBytes / selectedFile.size) * 100));
-        },
+      const video_id = await UploadService.uploadFile(selectedFile, (percentage) => {
+        setProgress(percentage);
       });
 
       setMessageType("success");
       setMessage(`✅ Upload complete! ID: ${video_id}`);
+      toast.success("Video uploaded successfully");
       setSelectedFile(null);
     } catch (error) {
+      const errorMsg = error?.message || "Upload failed";
       setMessageType("error");
-      setMessage(`❌ ${error.message}`);
+      setMessage(`❌ ${errorMsg}`);
+      toast.error(errorMsg);
     } finally {
       setUploading(false);
     }
