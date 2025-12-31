@@ -1,0 +1,162 @@
+import os
+import json
+
+
+GROUP_ROOT = "group"
+BEST_PHASE_FILE = os.path.join(GROUP_ROOT, "group_best_phases.json")
+TOP_K = 1
+
+
+# =========================
+# ATTENTION METRICS
+# =========================
+
+def extract_attention_metrics(phase):
+    start = phase["metric_timeseries"].get("start") or {}
+    end   = phase["metric_timeseries"].get("end") or {}
+
+    start_view = start.get("viewer_count")
+    end_view   = end.get("viewer_count")
+
+    start_like = start.get("like_count")
+    end_like   = end.get("like_count")
+
+    duration = (
+        phase["time_range"]["end_sec"]
+        - phase["time_range"]["start_sec"]
+    )
+
+    delta_view = (
+        end_view - start_view
+        if start_view is not None and end_view is not None
+        else None
+    )
+
+    delta_like = (
+        end_like - start_like
+        if start_like is not None and end_like is not None
+        else None
+    )
+
+    view_velocity = (
+        delta_view / duration
+        if delta_view is not None and duration > 0
+        else None
+    )
+
+    like_velocity = (
+        delta_like / duration
+        if delta_like is not None and duration > 0
+        else None
+    )
+
+    avg_view = (
+        (start_view + end_view) / 2
+        if start_view is not None and end_view is not None
+        else None
+    )
+
+    like_per_viewer = (
+        delta_like / avg_view
+        if delta_like is not None and avg_view and avg_view > 0
+        else None
+    )
+
+    return {
+        "delta_view": delta_view,
+        "view_velocity": view_velocity,
+        "delta_like": delta_like,
+        "like_velocity": like_velocity,
+        "like_per_viewer": like_per_viewer
+    }
+
+
+# =========================
+# ATTENTION SCORE
+# =========================
+
+def compute_attention_score(m):
+    score = 0.0
+
+    if m["view_velocity"] is not None:
+        score += 0.4 * m["view_velocity"]
+
+    if m["like_velocity"] is not None:
+        score += 0.3 * m["like_velocity"]
+
+    if m["like_per_viewer"] is not None:
+        score += 0.2 * m["like_per_viewer"]
+
+    if m["delta_view"] is not None:
+        score += 0.1 * m["delta_view"]
+
+    return score
+
+
+# =========================
+# LOAD / SAVE
+# =========================
+
+def load_group_best_phases():
+    if not os.path.exists(BEST_PHASE_FILE):
+        return {
+            "version": "v1_attention",
+            "groups": {}
+        }
+
+    with open(BEST_PHASE_FILE, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def save_group_best_phases(best_data):
+    os.makedirs(GROUP_ROOT, exist_ok=True)
+
+    with open(BEST_PHASE_FILE, "w", encoding="utf-8") as f:
+        json.dump(best_data, f, ensure_ascii=False, indent=2)
+
+    print(f"[OK] Best phases saved → {BEST_PHASE_FILE}")
+
+
+# =========================
+# STEP 8 – UPDATE BEST PHASES
+# =========================
+
+def update_group_best_phases(phase_units, best_data, video_id):
+    for p in phase_units:
+        group_id = p.get("group_id")
+        if not group_id:
+            continue
+
+        group_id = str(group_id)
+
+        metrics = extract_attention_metrics(p)
+        score = compute_attention_score(metrics)
+
+        phase_entry = {
+            "phase_id": f"{video_id}_phase_{p['phase_index']}",
+            "video_id": video_id,
+            "phase_index": p["phase_index"],
+            "score": score,
+            "metrics": metrics
+        }
+
+        group = best_data["groups"].setdefault(
+            group_id,
+            {
+                "top_k": TOP_K,
+                "phases": []
+            }
+        )
+
+        group["phases"].append(phase_entry)
+
+        # sort giảm dần theo score
+        group["phases"].sort(
+            key=lambda x: x["score"],
+            reverse=True
+        )
+
+        # giữ top K
+        group["phases"] = group["phases"][:TOP_K]
+
+    return best_data
