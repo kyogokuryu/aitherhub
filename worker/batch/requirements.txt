@@ -18,7 +18,12 @@ tenacity==8.2.3
 loguru==0.7.2
 python-dotenv==1.0.1
 
+python-decouple
 
 sqlalchemy>=2.0
 
 openai>=1.12.0
+
+ultralytics
+paddlepaddle 
+paddleocr

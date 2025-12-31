@@ -1,8 +1,23 @@
+# Batch
 .venv
+**/.env
 __pycache__/
 *.pyc
 *.pyo
 note.txt
+**/uploadedvideo/
+**/frames/
+**/old/
+**/yolov8x.pt
+**/yolov8m.pt
+**/yolov8n.pt
+**/yolov8s.pt
+**/audio/
+**/audio_text/
+**/group/
+**/phase/
+**/ffmpeg
+**/report
 
 # Environment files (keep secrets out of git)
 .env
