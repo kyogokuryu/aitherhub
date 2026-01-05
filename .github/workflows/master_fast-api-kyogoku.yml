@@ -41,27 +41,19 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
-
+  
     steps:
       - name: Download artifact
         uses: actions/download-artifact@v4
         with:
           name: python-app
-   
-
-      - name: Debug deploy structure (1 lần cho chắc)
-        run: |
-          echo "ROOT:"
-          ls -la
-          echo "python-app:"
-          ls -la python-app
-          echo "python-app/backend:"
-          ls -la python-app/backend
-
+          path: .
+  
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: fast-api-kyogoku
           slot-name: Production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_CADC6849BE114E58AD1CB2C9281CB379 }}
-          package: python-app/backend
+          package: .
+
