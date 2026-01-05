@@ -20,22 +20,22 @@ jobs:
         with:
           python-version: '3.11'
 
-      # Build ONLY BE folder
-      - name: Create venv and install dependencies (BE only)
-        working-directory: BE
+      # Build ONLY backend folder
+      - name: Create venv and install dependencies (backend only)
+        working-directory: backend
         run: |
           python -m venv antenv
           source antenv/bin/activate
           pip install -r requirements.txt
 
-      # Upload ONLY BE folder
-      - name: Upload BE artifact
+      # Upload ONLY backend folder
+      - name: Upload backend artifact
         uses: actions/upload-artifact@v4
         with:
           name: python-app
           path: |
-            BE
-            !BE/antenv/
+            backend
+            !backend/antenv/
 
   deploy:
     runs-on: ubuntu-latest
@@ -47,11 +47,10 @@ jobs:
         with:
           name: python-app
 
-      # Deploy BE to Web App
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: 'fast-api-kyogoku'
           slot-name: 'Production'
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_CADC6849BE114E58AD1CB2C9281CB379 }}
-          package: BE
+          package: backend
