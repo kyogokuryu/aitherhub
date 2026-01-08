@@ -52,7 +52,7 @@ class VideoService:
         if not self.video_repository:
             raise RuntimeError("VideoRepository not initialized")
         
-        video = self.video_repository.create_video(
+        video = await self.video_repository.create_video(
             user_id=user_id,
             video_id=video_id,
             original_filename=original_filename,

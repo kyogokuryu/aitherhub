@@ -2,6 +2,8 @@ from contextlib import AbstractContextManager
 from typing import Callable
 import uuid as _uuid
 
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.orm.video import Video
@@ -9,13 +11,14 @@ from app.repository.base_repository import BaseRepository
 
 
 class VideoRepository(BaseRepository):
-    def __init__(self, session_factory: Callable[..., AbstractContextManager[Session]]):
+    def __init__(self, session_factory: Callable[..., AsyncSession]):
         self.session_factory = session_factory
         super().__init__(session_factory, Video)
 
-    def create_video(self, user_id: int, video_id: str, original_filename: str, status: str = "uploaded") -> Video:
+    async def create_video(self, user_id: int, video_id: str, original_filename: str, status: str = "uploaded") -> Video:
         """Create a new video record"""
-        with self.session_factory() as session:
+        session = self.session_factory()
+        try:
             video = Video(
                 id=_uuid.UUID(video_id),
                 user_id=user_id,
@@ -23,16 +26,30 @@ class VideoRepository(BaseRepository):
                 status=status,
             )
             session.add(video)
-            session.commit()
-            session.refresh(video)
+            await session.commit()
+            await session.refresh(video)
             return video
+        finally:
+            await session.close()
 
-    def get_video_by_id(self, video_id: str) -> Video | None:
+    async def get_video_by_id(self, video_id: str) -> Video | None:
         """Get video by ID"""
-        with self.session_factory() as session:
-            return session.query(Video).filter(Video.id == _uuid.UUID(video_id)).first()
+        session = self.session_factory()
+        try:
+            result = await session.execute(
+                select(Video).filter(Video.id == _uuid.UUID(video_id))
+            )
+            return result.scalar_one_or_none()
+        finally:
+            await session.close()
 
-    def get_videos_by_user(self, user_id: int) -> list[Video]:
+    async def get_videos_by_user(self, user_id: int) -> list[Video]:
         """Get all videos for a user"""
-        with self.session_factory() as session:
-            return session.query(Video).filter(Video.user_id == user_id).all()
+        session = self.session_factory()
+        try:
+            result = await session.execute(
+                select(Video).filter(Video.user_id == user_id)
+            )
+            return result.scalars().all()
+        finally:
+            await session.close()
