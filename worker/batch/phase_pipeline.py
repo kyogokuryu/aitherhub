@@ -308,8 +308,18 @@ def build_phase_units(
             end_sec
         )
 
-        rep_idx = rep_frames[i]
-        caption = keyframe_captions[i]["caption"]
+        # rep_frames/keyframe_captions may have length = number_of_phases - 1
+        # When missing, fallback to middle frame of the phase.
+        if i < len(rep_frames):
+            rep_idx = rep_frames[i]
+        else:
+            rep_idx = int((start_sec + end_sec) // 2)
+            rep_idx = max(0, min(rep_idx, len(files) - 1))
+
+        if i < len(keyframe_captions):
+            caption = keyframe_captions[i]["caption"]
+        else:
+            caption = ""
 
         phase_units.append({
             "phase_index": i + 1,

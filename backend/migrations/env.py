@@ -17,6 +17,11 @@ from app.models.orm import (
     AudioChunk,
     SpeechSegment,
     VideoProcessingState,
+    Report,
+    Phase,
+    PhaseGroup,
+    PhaseGroupBestPhase,
+    PhaseInsight,
 )
 
 config = context.config
