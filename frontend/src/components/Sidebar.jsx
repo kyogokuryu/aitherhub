@@ -30,6 +30,7 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect }) {
   const [searchValue, setSearchValue] = useState("");
   const [isFocus, setIsFocus] = useState(false);
   const showPlaceholder = !isFocus && searchValue === "";
+  const [showBackButton, setShowBackButton] = useState(false);
 
   // ===== user fallback =====
   const effectiveUser =
@@ -95,6 +96,18 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect }) {
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (isOpen) {
+      const timer = setTimeout(() => {
+        setShowBackButton(true);
+      }, 300); // đúng duration sidebar
+  
+      return () => clearTimeout(timer);
+    } else {
+      setShowBackButton(false);
+    }
+  }, [isOpen]);
 
   const toggleDropdown = () => {
     setOpenDropdown((prev) => !prev);
@@ -261,6 +274,14 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect }) {
           </ul>
         )}
       </aside>
+      <button
+  onClick={onClose}
+  style={{ fontSize: "24px", borderRadius: "50%" }}
+  className={`md:hidden ml-[-10px] fixed top-[28px] left-[350px] z-[70] w-[32px] h-[32px] flex items-center justify-center font-bold bg-white rounded-full shadow-lg transition-all duration-200 ease-out ${showBackButton ? "opacity-100 translate-x-0 pointer-events-auto" : "opacity-0 translate-x-2 pointer-events-none"}`}
+>
+  &lt;
+</button>
+
 
       {/* ===== MODAL ===== */}
       <ForgotPasswordModal
