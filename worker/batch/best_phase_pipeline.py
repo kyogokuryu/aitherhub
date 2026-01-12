@@ -132,8 +132,11 @@ def update_group_best_phases(phase_units, best_data, video_id):
         metrics = extract_attention_metrics(p)
         score = compute_attention_score(metrics)
 
+        # Prefer DB-generated phase_id if available, otherwise keep legacy string
+        phase_id_val = p.get("phase_id") or f"{video_id}_phase_{p['phase_index']}"
+
         phase_entry = {
-            "phase_id": f"{video_id}_phase_{p['phase_index']}",
+            "phase_id": phase_id_val,
             "video_id": video_id,
             "phase_index": p["phase_index"],
             "score": score,

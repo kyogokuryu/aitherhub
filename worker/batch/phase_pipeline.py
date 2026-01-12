@@ -274,6 +274,9 @@ def collect_speech_for_phase(segments, start_sec, end_sec):
     return " ".join(texts)
 
 
+from db_ops import insert_phase_sync
+
+
 def build_phase_units(
     keyframes,
     rep_frames,
@@ -282,6 +285,7 @@ def build_phase_units(
     total_frames,
     frame_dir,
     audio_text_dir,
+    video_id: str | None = None,
 ):
     """
     STEP 5 – Build phase units.
@@ -321,7 +325,7 @@ def build_phase_units(
         else:
             caption = ""
 
-        phase_units.append({
+        phase = {
             "phase_index": i + 1,
 
             "time_range": {
@@ -343,7 +347,55 @@ def build_phase_units(
                 "start_used_frame": ps["phase_start_used_frame"],
                 "end_used_frame": ps["phase_end_used_frame"]
             }
-        })
+        }
+
+        # Persist immediately so caller can have DB-generated phase_id
+        if video_id:
+            try:
+            start = ps.get("start") or {}
+            end = ps.get("end") or {}
+
+            view_start = start.get("viewer_count") if isinstance(start, dict) else None
+            view_end = end.get("viewer_count") if isinstance(end, dict) else None
+            like_start = start.get("like_count") if isinstance(start, dict) else None
+            like_end = end.get("like_count") if isinstance(end, dict) else None
+
+            delta_view = None
+            delta_like = None
+            try:
+                if view_start is not None and view_end is not None:
+                    delta_view = int(view_end - view_start)
+            except Exception:
+                delta_view = None
+
+            try:
+                if like_start is not None and like_end is not None:
+                    delta_like = int(like_end - like_start)
+            except Exception:
+                delta_like = None
+
+            time_start = float(start_sec) if start_sec is not None else None
+            time_end = float(end_sec) if end_sec is not None else None
+
+            new_id = insert_phase_sync(
+                video_id=str(video_id),
+                phase_index=phase["phase_index"],
+                phase_description=None,
+                time_start=time_start,
+                time_end=time_end,
+                view_start=view_start,
+                view_end=view_end,
+                like_start=like_start,
+                like_end=like_end,
+                delta_view=delta_view,
+                delta_like=delta_like,
+                phase_group_id=None,
+            )
+            phase["phase_id"] = new_id
+            except Exception as e:
+                print(f"[DB][WARN] Could not insert phase now: {e}")
+
+        phase_units.append(phase)
 
     return phase_units
 

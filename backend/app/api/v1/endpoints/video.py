@@ -67,6 +67,7 @@ async def upload_complete(
         
         result = await service.handle_upload_complete(
             user_id=current_user["id"],
+            email=payload.email,
             video_id=payload.video_id,
             original_filename=payload.filename,
         )
