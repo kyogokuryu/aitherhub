@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 
-import logo from "../assets/logo/logo.png";
+import logo from "../assets/logo/logo.svg";
 import write from "../assets/icons/write.png";
 import searchIcon from "../assets/icons/search.png";
 import searchMobile from "../assets/icons/searchmobile.png";
@@ -174,7 +174,7 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect }) {
           <div className="bg-gradient-to-b from-[#4500FF] to-[#9B00FF]">
             <div className="bg-white">
               <div className="flex items-center mb-5 mt-1">
-                <img src={logo} className="w-10 h-10 ml-2" />
+              <img src={logo} className="w-10 h-10 ml-2 md:w-[75px] md:h-[75px] lg:w-[100px] lg:h-[100px]" />
                 <span className="ml-2 font-semibold text-[24px] bg-gradient-to-b from-[#4500FF] to-[#9B00FF] bg-clip-text text-transparent">
                   Liveboost AI
                 </span>

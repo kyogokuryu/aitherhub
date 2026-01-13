@@ -1,57 +1,68 @@
 import Sidebar from "../components/Sidebar";
 import MainContent from '../components/MainContent';
 import VideoDetail from '../components/VideoDetail';
-import { useState } from "react";
-import Dashboard from "../pages/Dashboard";
+import { useState, useCallback, useMemo } from "react";
+
+const getUserFromStorage = () => {
+  try {
+    const stored = localStorage.getItem("user");
+    return stored ? JSON.parse(stored) : { isLoggedIn: false };
+  } catch {
+    return { isLoggedIn: false };
+  }
+};
 
 export default function MainLayout() {
   const [openSidebar, setOpenSidebar] = useState(false);
   const [selectedVideo, setSelectedVideo] = useState(null);
-  const [user, setUser] = useState(() => {
-    try {
-      const s = localStorage.getItem("user");
-      return s ? JSON.parse(s) : { isLoggedIn: false };
-    } catch (e) {
-      return { isLoggedIn: false };
-    }
-  });
+  const [user, setUser] = useState(getUserFromStorage);
 
-  const handleVideoSelect = (video) => {
+  const handleVideoSelect = useCallback((video) => {
     setSelectedVideo(video);
-  };
+  }, []);
 
-  const handleUserChange = (newUser) => {
+  const handleUserChange = useCallback((newUser) => {
     setUser(newUser);
     if (!newUser?.isLoggedIn) {
       setSelectedVideo(null);
     }
-  };
+  }, []);
+
+  const handleCloseSidebar = useCallback(() => {
+    setOpenSidebar(false);
+  }, []);
+
+  const handleOpenSidebar = useCallback(() => {
+    setOpenSidebar(true);
+  }, []);
+
+  const sidebarProps = useMemo(() => ({
+    isOpen: openSidebar,
+    onClose: handleCloseSidebar,
+    user,
+    onVideoSelect: handleVideoSelect,
+  }), [openSidebar, handleCloseSidebar, user, handleVideoSelect]);
+
+  const mainContentProps = useMemo(() => ({
+    onOpenSidebar: handleOpenSidebar,
+    user,
+    setUser: handleUserChange,
+  }), [handleOpenSidebar, user, handleUserChange]);
 
   return (
     <div className="min-h-screen bg-gray-100 flex justify-center">
-      <div className="w-full max-w-[1280px] flex">
+      <div className="w-full flex">
+
         <aside className="hidden xl:block w-1/5 bg-white text-black">
-          <Sidebar 
-            isOpen={openSidebar} 
-            onClose={() => setOpenSidebar(false)} 
-            user={user}
-            onVideoSelect={handleVideoSelect}
-          />
+          <Sidebar {...sidebarProps} />
         </aside>
+        
         <div className="xl:hidden">
-          <Sidebar 
-            isOpen={openSidebar} 
-            onClose={() => setOpenSidebar(false)} 
-            user={user}
-            onVideoSelect={handleVideoSelect}
-          />
+          <Sidebar {...sidebarProps} />
         </div>
+        
         <main className="w-full md:w-4/5 bg-gradient-to-b from-[#4500FF] to-[#9B00FF] text-white">
-          <MainContent 
-            onOpenSidebar={() => setOpenSidebar(true)} 
-            user={user} 
-            setUser={handleUserChange}
-          >
+          <MainContent {...mainContentProps}>
             {selectedVideo && <VideoDetail video={selectedVideo} />}
           </MainContent>
         </main>

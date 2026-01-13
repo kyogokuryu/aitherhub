@@ -135,13 +135,13 @@ export default function MainContent({ children, onOpenSidebar, user, setUser }) 
                     あなたの配信、AIで最適化。<br className="block md:hidden" /> 売上アップの秘密がここに。
                 </h4>
 
-                <h4 className="absolute top-[125px] md:top-[157px] w-full text-[28px] leading-[40px] font-semibold font-cabin text-center">
+                <h4 className="absolute top-[125px] max-[899px]:top-[130px] md:top-[157px] w-full text-[28px] leading-[40px] font-semibold font-cabin text-center">
                     動画ファイルを<br className="block md:hidden" /> アップロードして<br className="block md:hidden" /> 解析を開始
                 </h4>
             </div>
             <div className="relative w-full">
                 <div 
-                  className="absolute top-[273px] md:top-[218px] left-1/2 -translate-x-1/2 w-[300px] h-[250px] md:w-[400px] md:h-[300px] border-5 border-gray-300 rounded-[20px] flex flex-col items-center justify-center text-center gap-4 transition-colors"
+                  className="absolute top-[273px] md:top-[260px] lg:top-[218px] left-1/2 -translate-x-1/2 w-[300px] h-[250px] md:w-[400px] md:h-[300px] border-5 border-gray-300 rounded-[20px] flex flex-col items-center justify-center text-center gap-4 transition-colors"
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
                 >
