@@ -135,7 +135,7 @@ export default function MainContent({ children, onOpenSidebar, user, setUser }) 
                     あなたの配信、AIで最適化。<br className="block md:hidden" /> 売上アップの秘密がここに。
                 </h4>
 
-                <h4 className="absolute top-[125px] max-[899px]:top-[130px] md:top-[157px] w-full text-[28px] leading-[40px] font-semibold font-cabin text-center">
+                <h4 className="absolute top-[125px] md:top-[157px] w-full text-[28px] leading-[40px] font-semibold font-cabin text-center">
                     動画ファイルを<br className="block md:hidden" /> アップロードして<br className="block md:hidden" /> 解析を開始
                 </h4>
             </div>
