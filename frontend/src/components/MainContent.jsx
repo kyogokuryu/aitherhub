@@ -141,7 +141,7 @@ export default function MainContent({ children, onOpenSidebar, user, setUser }) 
             </div>
             <div className="relative w-full">
                 <div 
-                  className="absolute top-[273px] md:top-[218px] left-1/2 -translate-x-1/2 w-[300px] h-[250px] md:w-[400px] md:h-[300px] border-5 border-gray-300 rounded-[20px] flex flex-col items-center justify-center text-center gap-4 transition-colors"
+                  className="absolute top-[273px] md:top-[260px] lg:top-[218px] left-1/2 -translate-x-1/2 w-[300px] h-[250px] md:w-[400px] md:h-[300px] border-5 border-gray-300 rounded-[20px] flex flex-col items-center justify-center text-center gap-4 transition-colors"
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
                 >
