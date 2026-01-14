@@ -23,7 +23,7 @@ jobs:
 
       - name: Install dependencies (frontend only)
         working-directory: frontend
-        run: npm ci
+        run: npm install
 
       - name: Build frontend
         working-directory: frontend
@@ -57,3 +57,4 @@ jobs:
           action: upload
           app_location: "frontend/dist"
           output_location: ""
+
