@@ -258,7 +258,8 @@ async def get_all_phase_groups():
     for r in rows:
         groups.append({
             "group_id": r.id,
-            "centroid": json.loads(r.centroid),
+            # "centroid": json.loads(r.centroid),
+            "centroid": r.centroid,
             "size": r.size,
         })
     return groups
