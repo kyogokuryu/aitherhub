@@ -5,17 +5,21 @@ import UploadService from "../base/services/uploadService";
 import { toast } from "react-toastify";
 import LoginModal from "./modals/LoginModal";
 
-export default function MainContent({ children, onOpenSidebar, user, setUser }) {
+export default function MainContent({
+  children,
+  onOpenSidebar,
+  user,
+  setUser,
+}) {
   const isLoggedIn = Boolean(
-    user && (
-      user.token ||
-      user.accessToken ||
-      user.id ||
-      user.email ||
-      user.username ||
-      user.isAuthenticated ||
-      user.isLoggedIn
-    )
+    user &&
+      (user.token ||
+        user.accessToken ||
+        user.id ||
+        user.email ||
+        user.username ||
+        user.isAuthenticated ||
+        user.isLoggedIn)
   );
   const [selectedFile, setSelectedFile] = useState(null);
   const [uploading, setUploading] = useState(false);
@@ -65,9 +69,13 @@ export default function MainContent({ children, onOpenSidebar, user, setUser }) 
     setProgress(0);
 
     try {
-      const video_id = await UploadService.uploadFile(selectedFile, user.email, (percentage) => {
-        setProgress(percentage);
-      });
+      const video_id = await UploadService.uploadFile(
+        selectedFile,
+        user.email,
+        (percentage) => {
+          setProgress(percentage);
+        }
+      );
 
       setMessageType("success");
       setMessage(`✅ Upload complete! ID: ${video_id}`);
@@ -98,7 +106,7 @@ export default function MainContent({ children, onOpenSidebar, user, setUser }) 
   const handleDrop = (e) => {
     e.preventDefault();
     e.stopPropagation();
-    
+
     if (!isLoggedIn) {
       setShowLoginModal(true);
       return;
@@ -121,8 +129,8 @@ export default function MainContent({ children, onOpenSidebar, user, setUser }) 
     <div className="flex flex-col h-screen">
       <Header onOpenSidebar={onOpenSidebar} user={user} setUser={setUser} />
 
-      <LoginModal 
-        open={showLoginModal} 
+      <LoginModal
+        open={showLoginModal}
         onClose={() => setShowLoginModal(false)}
         onSwitchToRegister={() => setShowLoginModal(false)}
       />
@@ -131,102 +139,131 @@ export default function MainContent({ children, onOpenSidebar, user, setUser }) 
         {children ?? (
           <>
             <div className="relative w-full">
-                <h4 className="absolute top-[11px] md:top-[5px] w-full text-[26px] leading-[40px] font-semibold font-cabin text-center">
-                    あなたの配信、AIで最適化。<br className="block md:hidden" /> 売上アップの秘密がここに。
-                </h4>
+              <h4 className="absolute top-[11px] md:top-[5px] w-full text-[26px] leading-[40px] font-semibold font-cabin text-center">
+                あなたの配信、AIで最適化。
+                <br className="block md:hidden" /> 売上アップの秘密がここに。
+              </h4>
 
-                <h4 className="absolute top-[125px] md:top-[157px] w-full text-[28px] leading-[40px] font-semibold font-cabin text-center">
-                    動画ファイルを<br className="block md:hidden" /> アップロードして<br className="block md:hidden" /> 解析を開始
-                </h4>
+              <h4 className="absolute top-[125px] md:top-[157px] w-full text-[28px] leading-[40px] font-semibold font-cabin text-center">
+                動画ファイルを
+                <br className="block md:hidden" /> アップロードして
+                <br className="block md:hidden" /> 解析を開始
+              </h4>
             </div>
             <div className="relative w-full">
-                <div 
-                  className="absolute top-[273px] md:top-[260px] lg:top-[218px] left-1/2 -translate-x-1/2 w-[300px] h-[250px] md:w-[400px] md:h-[300px] border-5 border-gray-300 rounded-[20px] flex flex-col items-center justify-center text-center gap-4 transition-colors"
-                  onDragOver={handleDragOver}
-                  onDrop={handleDrop}
-                >
-                  {uploading ? (
-                    <>
-                      <div className="w-full px-4">
-                        <div className="w-full bg-gray-200 rounded-full h-2">
-                          <div
-                            className="bg-purple-600 h-2 rounded-full transition-all"
-                            style={{ width: `${progress}%` }}
-                          ></div>
-                        </div>
-                        <p className="text-sm font-medium mt-2">{progress}%</p>
+              <div
+                className="absolute top-[273px] md:top-[260px] lg:top-[218px] left-1/2 -translate-x-1/2 w-[300px] h-[250px] md:w-[400px] md:h-[300px] border-5 border-gray-300 rounded-[20px] flex flex-col items-center justify-center text-center gap-4 transition-colors"
+                onDragOver={handleDragOver}
+                onDrop={handleDrop}
+              >
+                {uploading ? (
+                  <>
+                    <div className="w-full px-4">
+                      <div className="w-full bg-gray-200 rounded-full h-2">
+                        <div
+                          className="bg-purple-600 h-2 rounded-full transition-all"
+                          style={{ width: `${progress}%` }}
+                        ></div>
                       </div>
+                      <p className="text-sm font-medium mt-2">{progress}%</p>
+                    </div>
+                    <button
+                      onClick={handleCancel}
+                      className="w-[143px] h-[41px] bg-white text-gray-600 border border-gray-300 rounded-[30px] text-sm"
+                    >
+                      キャンセル
+                    </button>
+                  </>
+                ) : selectedFile ? (
+                  <>
+                    <div className="text-4xl">🎬</div>
+                    <div>
+                      <p className="text-sm font-semibold">
+                        {selectedFile.name}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                      </p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleUpload}
+                        className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-[30px] leading-[28px] font-semibold"
+                      >
+                        アップロード
+                      </button>
                       <button
                         onClick={handleCancel}
-                        className="w-[143px] h-[41px] bg-white text-gray-600 border border-gray-300 rounded-[30px] text-sm"
+                        className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-[30px] text-sm"
                       >
                         キャンセル
                       </button>
-                    </>
-                  ) : selectedFile ? (
-                    <>
-                      <div className="text-4xl">🎬</div>
-                      <div>
-                        <p className="text-sm font-semibold">{selectedFile.name}</p>
-                        <p className="text-xs text-gray-500">{(selectedFile.size / 1024 / 1024).toFixed(2)} MB</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={handleUpload}
-                          className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-[30px] leading-[28px] font-semibold"
-                        >
-                          アップロード
-                        </button>
-                        <button
-                          onClick={handleCancel}
-                          className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-[30px] text-sm"
-                        >
-                          キャンセル
-                        </button>
-                      </div>
-                    </>
-                  ) : (
-                    <>
-                      <img src={uploadIcon} alt="upload" className="w-[135px] h-[135px]" />
-                      <h5 className="hidden md:inline text-[20px] leading-[35px] font-semibold font-cabin text-center h-[35px]">
-                        動画ファイルをドラッグ＆ドロップ
-                      </h5>
-                      <label
-                        className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-[30px] text-[14px] leading-[28px] cursor-pointer font-semibold"
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <img
+                      src={uploadIcon}
+                      alt="upload"
+                      className="w-[135px] h-[135px]"
+                    />
+                    <h5 className="hidden md:inline text-[20px] leading-[35px] font-semibold font-cabin text-center h-[35px]">
+                      動画ファイルをドラッグ＆ドロップ
+                    </h5>
+                    <label
+                      className="
+                        w-[143px] h-[41px]
+                        flex items-center justify-center
+                        bg-white text-[#7D01FF]
+                        border border-[#7D01FF]
+                        rounded-[30px]
+                        text-[14px] leading-[28px]
+                        font-semibold
+                        cursor-pointer
+                        transition-transform duration-150 ease-out
+                        active:scale-[0.96]
+                        select-none
+                      "
+                      onMouseDown={(e) => {
+                        if (!isLoggedIn) {
+                          e.preventDefault();
+                          setShowLoginModal(true);
+                        }
+                      }}
+                    >
+                      ファイルを選択
+                      <input
+                        type="file"
+                        accept="video/*"
+                        disabled={!isLoggedIn}
                         onMouseDown={(e) => {
                           if (!isLoggedIn) {
                             e.preventDefault();
-                            setShowLoginModal(true);
                           }
                         }}
-                      >
-                        ファイルを選択
-                        <input
-                          type="file"
-                          accept="video/*"
-                          disabled={!isLoggedIn}
-                          onMouseDown={(e) => {
-                            if (!isLoggedIn) {
-                              e.preventDefault();
-                            }
-                          }}
-                          onClick={(e) => {
-                            if (!isLoggedIn) {
-                              e.preventDefault();
-                            }
-                          }}
-                          onChange={handleFileSelect}
-                          className="hidden"
-                        />
-                      </label>
-                    </>
-                  )}
-                  {message && (
-                    <p className={`text-xs text-center ${messageType === "success" ? "text-green-600" : "text-red-600"}`}>
-                      {message}
-                    </p>
-                  )}
-                </div>
+                        onClick={(e) => {
+                          if (!isLoggedIn) {
+                            e.preventDefault();
+                          }
+                        }}
+                        onChange={handleFileSelect}
+                        className="hidden"
+                      />
+                    </label>
+                  </>
+                )}
+                {message && (
+                  <p
+                    className={`text-xs text-center ${
+                      messageType === "success"
+                        ? "text-green-600"
+                        : "text-red-600"
+                    }`}
+                  >
+                    {message}
+                  </p>
+                )}
+              </div>
             </div>
           </>
         )}

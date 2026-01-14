@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { toast } from 'react-toastify';
 import AuthService from '../../base/services/userService';
+import { PrimaryButton, SecondaryButton } from '../../components/buttons';
 
 export default function ForgotPassword({ onSuccess }) {
     const [email, setEmail] = useState("");
@@ -109,30 +110,20 @@ export default function ForgotPassword({ onSuccess }) {
 
             {/* ===== BUTTONS ===== */}
             <div className="flex flex-col md:flex-row items-center gap-4 w-full mt-6 align-center md:justify-center md:gap-[30px] md:mt-0">
-                <button
+                <PrimaryButton
                     onClick={handleForgotPassword}
                     disabled={isLoading}
-                    className="w-[250px] md:w-[230px] h-[50px] rounded-[5px] text-[20px] leading-[16px] text-white flex items-center justify-center bg-gradient-to-b from-[#4500FF] to-[#9B00FF] disabled:opacity-50 disabled:cursor-not-allowed"
+                    rounded="rounded-[5px]"
+                    width="w-[250px] md:w-[230px]"
                 >
-                    <span className="font-cabin font-semibold text-[20px] text-white">
                     {isLoading ? "処理中..." : "変更する"}
-                    </span>
-                </button>
+                </PrimaryButton>
 
-                <button
+                <SecondaryButton
                     onClick={() => { if (onSuccess) onSuccess(); }}
-                    style={{
-                        padding: "2px",
-                        borderRadius: "5px",
-                        background: "linear-gradient(to bottom, #4500FF, #9B00FF)",
-                    }}
                 >
-                    <span className="flex w-[246px] md:w-[230px] h-[44px] items-center justify-center rounded-[0px] bg-white group-hover:bg-transparent transition">
-                        <span className="font-cabin font-semibold text-[20px] bg-gradient-to-b from-[#4500FF] to-[#9B00FF] bg-clip-text text-transparent group-hover:text-white">
-                            キャンセル
-                        </span>
-                    </span>
-                </button>
+                    キャンセル
+                </SecondaryButton>
             </div>
         </div>
     );

@@ -7,8 +7,13 @@ import LoginModal from "../modals/LoginModal";
 import RegisterModal from "../modals/RegisterModal";
 import ForgotPasswordModal from "../modals/ForgotPasswordModal";
 import AuthService from "../../base/services/userService";
+import { BasicButton } from "../buttons";
 
-export default function Header({ onOpenSidebar, user: propUser, setUser: setPropUser }) {
+export default function Header({
+  onOpenSidebar,
+  user: propUser,
+  setUser: setPropUser,
+}) {
   const [openLogin, setOpenLogin] = useState(false);
   const [openRegister, setOpenRegister] = useState(false);
   const [localUser, setLocalUser] = useState(null);
@@ -29,7 +34,7 @@ export default function Header({ onOpenSidebar, user: propUser, setUser: setProp
         setOpenDropdown(false);
       }
     };
-  
+
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, []);
@@ -54,7 +59,11 @@ export default function Header({ onOpenSidebar, user: propUser, setUser: setProp
         </div>
 
         {/* RIGHT SIDE */}
-        <div className={`flex items-center gap-[10px] justify-center w-[200px] h-[35px] rounded-[50px] ${user?.isLoggedIn && "bg-white" }`} >
+        <div
+          className={`flex items-center gap-[10px] justify-center w-[200px] h-[35px] rounded-[50px] ${
+            user?.isLoggedIn && "bg-white"
+          }`}
+        >
           {user?.isLoggedIn ? (
             <div className="relative" ref={dropdownRef}>
               <span
@@ -65,12 +74,14 @@ export default function Header({ onOpenSidebar, user: propUser, setUser: setProp
               </span>
 
               {openDropdown && (
-                <div className="absolute right-[-18px] top-[40px] w-[196px] bg-white border rounded-md shadow-md z-50" >
+                <div className="absolute right-[-18px] top-[40px] w-[196px] bg-white border rounded-md shadow-md z-50">
                   <ul className="flex flex-col text-[16px] text-black">
-                    <li
-                      className="px-4 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2"
-                    >
-                      <img src={MyAccount} alt="My Account" className="w-[16px] h-[16px]" />
+                    <li className="px-4 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2">
+                      <img
+                        src={MyAccount}
+                        alt="My Account"
+                        className="w-[16px] h-[16px]"
+                      />
                       マイアカウント
                     </li>
 
@@ -81,7 +92,11 @@ export default function Header({ onOpenSidebar, user: propUser, setUser: setProp
                         setOpenForgotPassword(true);
                       }}
                     >
-                      <img src={PasswordIcon} alt="Password" className="w-[16px] h-[16px]" />
+                      <img
+                        src={PasswordIcon}
+                        alt="Password"
+                        className="w-[16px] h-[16px]"
+                      />
                       パスワード変更
                     </li>
 
@@ -94,7 +109,11 @@ export default function Header({ onOpenSidebar, user: propUser, setUser: setProp
                         window.location.reload();
                       }}
                     >
-                      <img src={Signout} alt="Signout" className="w-[16px] h-[16px]" />
+                      <img
+                        src={Signout}
+                        alt="Signout"
+                        className="w-[16px] h-[16px]"
+                      />
                       ログアウト
                     </li>
                   </ul>
@@ -103,19 +122,18 @@ export default function Header({ onOpenSidebar, user: propUser, setUser: setProp
             </div>
           ) : (
             <>
-              <button
+              <BasicButton
                 onClick={() => setOpenLogin(true)}
-                className="bg-90 w-[90px] h-[35px] flex items-center justify-center bg-white text-[#4500FF] border border-[#4500FF]"
+                variant="secondary"
               >
                 ログイン
-              </button>
-              <button
+              </BasicButton>
+              <BasicButton
                 onClick={() => setOpenRegister(true)}
-                style={{ backgroundColor: "#4500FF" }}
-                className="bg-90 w-[90px] h-[35px] flex items-center justify-center text-white"
+                variant="primary"
               >
                 新規登録
-              </button>
+              </BasicButton>
             </>
           )}
         </div>

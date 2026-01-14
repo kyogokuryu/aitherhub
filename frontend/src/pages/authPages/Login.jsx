@@ -1,6 +1,7 @@
 import React, { useState } from "react";
-import { toast } from 'react-toastify';
-import AuthService from '../../base/services/userService';
+import { toast } from "react-toastify";
+import AuthService from "../../base/services/userService";
+import { PrimaryButton } from "../../components/buttons";
 
 export default function Login({ onSuccess, onSwitchToRegister }) {
   const [email, setEmail] = useState("");
@@ -15,7 +16,7 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
     try {
       // Login and get JWT tokens (tokens are automatically stored by AuthService)
       await AuthService.login(email, password);
-      
+
       // Get user info from /auth/me
       const userInfo = await AuthService.getCurrentUser();
 
@@ -35,75 +36,84 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
       toast.success("Login successful");
       if (onSuccess) onSuccess();
     } catch (err) {
-      const detail = err?.response?.data?.detail || err?.message || 'Login failed';
+      const detail =
+        err?.response?.data?.detail || err?.message || "Login failed";
       toast.error(detail);
     }
   };
 
   return (
     <div className="flex flex-col items-center justify-center space-y-6">
-        <h2 className="pt-[50px] pb-[20px] font-cabin font-medium text-[30px] leading-[30px] h-[30px] text-center flex items-center justify-center text-black md:text-[40px] md:leading-[30px] md:h-[30px]">
-          ログイン
-        </h2>
+      <h2 className="pt-[50px] pb-[20px] font-cabin font-medium text-[30px] leading-[30px] h-[30px] text-center flex items-center justify-center text-black md:text-[40px] md:leading-[30px] md:h-[30px]">
+        ログイン
+      </h2>
 
-        <div className="flex flex-col max-w-full top-[126px] items-start space-y-1 w-[340px] h-[250px] md:w-[400px]">
-            <div className="flex flex-col items-start w-full mb-[20px]">
-              <label className="font-cabin font-bold text-[14px] text-black mb-[7px]">
-                  メールアドレス
-              </label>
-              <input
-                  type="email"
-                  placeholder="メールアドレス"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="w-full h-[40px] border border-black/20 rounded-[55px] px-4 outline-none focus:border-[#4500FF] opacity-100 text-black md:w-[400px] md:h-[40px] md:rounded-[55px] md:border md:opacity-100"
-              />
-          </div>
-
-          <div className="flex flex-col items-start w-full mb-[30px]">
-              <label className="font-cabin font-bold text-[14px] text-black mb-[7px]">
-                  パスワード
-              </label>
-              <input
-                  type="password"
-                  placeholder="パスワード"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  className="w-full h-[40px] border border-black/20 rounded-[55px] px-4 outline-none focus:border-[#4500FF] opacity-100 text-black md:w-[400px] md:h-[40px] md:rounded-[55px] md:border md:opacity-100"
-                  />
-          </div>
-
-          <div className="flex flex-col items-start w-full mb-[30px]">
-            <div className="text-[9px] text-center text-gray-600 mb-[10px] md:mb-[15px]">
-              <span className="">
-                <a href="http://" target="_blank" rel="noopener noreferrer" style={{ color: "#000", textDecoration: "underline" }}>パスワードを再設定する</a>
-              </span>
-            </div>
-
-            <div className="text-[9px] text-center text-gray-600">
-                初めてご利用ですか?{" "}
-                <span className="">
-                  <a 
-                    href="#" 
-                    onClick={(e) => {
-                      e.preventDefault();
-                      if (onSwitchToRegister) onSwitchToRegister();
-                    }}
-                    style={{ color: "#000", textDecoration: "underline", cursor: "pointer" }}
-                  > 
-                    新規登録はこちら 
-                  </a>
-                </span>
-            </div>
-          </div>
+      <div className="flex flex-col max-w-full top-[126px] items-start space-y-1 w-[340px] h-[250px] md:w-[400px]">
+        <div className="flex flex-col items-start w-full mb-[20px]">
+          <label className="font-cabin font-bold text-[14px] text-black mb-[7px]">
+            メールアドレス
+          </label>
+          <input
+            type="email"
+            placeholder="メールアドレス"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="w-full h-[40px] border border-black/20 rounded-[55px] px-4 outline-none focus:border-[#4500FF] opacity-100 text-black md:w-[400px] md:h-[40px] md:rounded-[55px] md:border md:opacity-100"
+          />
         </div>
 
-        <button 
-          onClick={handleLogin}
-          style={{ fontSize: "20px", border: "3px solid" }}
-          className="mb-[50px] w-[250px] h-[50px] max-w-full box-border rounded-[55px] font-cabin font-semibold leading-[16px] text-white flex items-center justify-center border-2 border-transparent bg-gradient-to-b from-[#4500FF] to-[#9B00FF] transition-all duration-200 ease-out hover:bg-white hover:bg-none hover:border-[#4500FF] hover:text-[#4500FF]">
-          ログイン
-        </button>
+        <div className="flex flex-col items-start w-full mb-[30px]">
+          <label className="font-cabin font-bold text-[14px] text-black mb-[7px]">
+            パスワード
+          </label>
+          <input
+            type="password"
+            placeholder="パスワード"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            className="w-full h-[40px] border border-black/20 rounded-[55px] px-4 outline-none focus:border-[#4500FF] opacity-100 text-black md:w-[400px] md:h-[40px] md:rounded-[55px] md:border md:opacity-100"
+          />
+        </div>
+
+        <div className="flex flex-col items-start w-full mb-[30px]">
+          <div className="text-[9px] text-center text-gray-600 mb-[10px] md:mb-[15px]">
+            <span className="">
+              <a
+                href="http://"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{ color: "#000", textDecoration: "underline" }}
+              >
+                パスワードを再設定する
+              </a>
+            </span>
+          </div>
+
+          <div className="text-[9px] text-center text-gray-600">
+            初めてご利用ですか?{" "}
+            <span className="">
+              <a
+                href="#"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (onSwitchToRegister) onSwitchToRegister();
+                }}
+                style={{
+                  color: "#000",
+                  textDecoration: "underline",
+                  cursor: "pointer",
+                }}
+              >
+                新規登録はこちら
+              </a>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <PrimaryButton onClick={handleLogin} className="mb-[50px]">
+        ログイン
+      </PrimaryButton>
     </div>
   );
 }

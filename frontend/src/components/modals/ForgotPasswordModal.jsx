@@ -18,9 +18,26 @@ export default function ForgotPasswordModal({ open, onClose }) {
           >
             <button
               onClick={onClose}
-              className="bg-90 absolute right-0 top-[-70px] w-[56px] h-[56px] rounded-full overflow-hidden flex items-center justify-center z-10 transition-transform duration-200 ease-out hover:scale-[1.15]"
+              className="
+                bg-white
+                absolute right-0 top-[-70px]
+                w-[56px] h-[56px]
+                rounded-full
+                overflow-hidden
+                flex items-center justify-center
+                z-10
+                border-2 border-[#DDDDDD]
+                cursor-pointer
+                transition-transform duration-150 ease-out
+                active:scale-[0.95]
+                focus:outline-none focus-visible:outline-none
+              "
             >
-              <img src={CloseSvg} alt="Close" className="w-full h-full object-cover scale-70" />
+              <img
+                src={CloseSvg}
+                alt="Close"
+                className="w-full h-full object-cover scale-50 pointer-events-none"
+              />
             </button>
 
             <div className="p-6 w-full h-full bg-white rounded-[10px]">
