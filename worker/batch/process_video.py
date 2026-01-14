@@ -52,7 +52,8 @@ from db_ops import (
     update_video_status_sync,
     get_video_status_sync,
     load_video_phases_sync,
-    update_video_phase_description_sync
+    update_video_phase_description_sync,
+    update_phase_group_sync
 )
 
 from video_status import VideoStatus
@@ -61,11 +62,7 @@ from video_status import VideoStatus
 # Artifact layout (PERSISTENT)
 # =========================
 
-<<<<<<< HEAD
 ART_ROOT = "output"
-=======
-ART_ROOT = os.path.expanduser("~/kyogokuvideos/work")
->>>>>>> a1c54ec3ab730c2c6ab4a7d30186dd5a5b3ec375
 
 def video_root(video_id: str):
     return os.path.join(ART_ROOT, video_id)
@@ -288,10 +285,6 @@ def main():
                 frame_dir=frame_dir,
             )
         else:
-<<<<<<< HEAD
-=======
-            print("[SKIP] STEP 2")
->>>>>>> a1c54ec3ab730c2c6ab4a7d30186dd5a5b3ec375
             print("[SKIP] STEP 2 – but recompute phase_stats")
             phase_stats = extract_phase_stats(
                 keyframes=keyframes,
@@ -331,25 +324,13 @@ def main():
             # print("[CLEANUP] Remove frames")
             # shutil.rmtree(frames_dir(video_id), ignore_errors=True)
         else:
-<<<<<<< HEAD
             print("[SKIP] STEP 4")
-=======
-            # print("[SKIP] STEP 4")
-            # keyframe_captions = caption_keyframes(
-            #     frame_dir=frame_dir,
-            #     rep_frames=rep_frames,
-            # )
-            print("[SKIP] STEP 4 – but reload captions")
->>>>>>> a1c54ec3ab730c2c6ab4a7d30186dd5a5b3ec375
             keyframe_captions = caption_keyframes(
                 frame_dir=frame_dir,
                 rep_frames=rep_frames,
             )
-<<<<<<< HEAD
             # print("[SKIP] STEP 4 (captions already used in STEP 5)")
             # keyframe_captions = None
-=======
->>>>>>> a1c54ec3ab730c2c6ab4a7d30186dd5a5b3ec375
 
         # =========================
         # STEP 5 – BUILD PHASE UNITS (DB CHECKPOINT)
@@ -371,18 +352,10 @@ def main():
             print("[CLEANUP] Remove step1 cache + audio artifacts")
 
             print("[CLEANUP] Remove frames")
-<<<<<<< HEAD
             # shutil.rmtree(frames_dir(video_id), ignore_errors=True)
             # shutil.rmtree(cache_dir(video_id), ignore_errors=True)
             # shutil.rmtree(audio_text_dir(video_id), ignore_errors=True)
             # shutil.rmtree(audio_dir(video_id), ignore_errors=True)
-=======
-            shutil.rmtree(frames_dir(video_id), ignore_errors=True)
-
-            shutil.rmtree(cache_dir(video_id), ignore_errors=True)
-            shutil.rmtree(audio_text_dir(video_id), ignore_errors=True)
-            shutil.rmtree(audio_dir(video_id), ignore_errors=True)
->>>>>>> a1c54ec3ab730c2c6ab4a7d30186dd5a5b3ec375
         else:
             print("[SKIP] STEP 5")
             # raise RuntimeError("Resume from STEP >=5 should load phase_units from DB (not implemented yet).")
@@ -422,16 +395,31 @@ def main():
             print("=== STEP 7 – GLOBAL PHASE GROUPING ===")
             phase_units = embed_phase_descriptions(phase_units)
 
-            groups = load_global_groups()
+            # groups = load_global_groups()
+            # phase_units, groups = assign_phases_to_groups(phase_units, groups)
+            # save_global_groups(groups)
+
+            # groups = load_global_groups(ART_ROOT, video_id)
+            # phase_units, groups = assign_phases_to_groups(phase_units, groups)
+            # save_global_groups(groups, ART_ROOT, video_id)
+
+            from grouping_pipeline import load_global_groups_from_db
+            groups = load_global_groups_from_db()
             phase_units, groups = assign_phases_to_groups(phase_units, groups)
-            save_global_groups(groups)
+
+            # for g in groups:
+            #     upsert_phase_group_sync(
+            #         group_id=g["group_id"],
+            #         centroid=g["centroid"].tolist(),
+            #         size=g["size"],
+            #     )
 
             for g in groups:
-                upsert_phase_group_sync(
+                update_phase_group_sync(
                     group_id=g["group_id"],
                     centroid=g["centroid"].tolist(),
                     size=g["size"],
-                )
+            )
 
             for p in phase_units:
                 if p.get("group_id"):
@@ -449,13 +437,24 @@ def main():
         if start_step <= 8:
             update_video_status_sync(video_id, VideoStatus.STEP_8_UPDATE_BEST_PHASE)
             print("=== STEP 8 – GROUP BEST PHASES ===")
-            best_data = load_group_best_phases()
+
+            # best_data = load_group_best_phases()
+            # best_data = update_group_best_phases(
+            #     phase_units=phase_units,
+            #     best_data=best_data,
+            #     video_id=video_id,
+            # )
+            # save_group_best_phases(best_data)
+
+            best_data = load_group_best_phases(ART_ROOT, video_id)
+
             best_data = update_group_best_phases(
                 phase_units=phase_units,
                 best_data=best_data,
                 video_id=video_id,
             )
-            save_group_best_phases(best_data)
+
+            save_group_best_phases(best_data, ART_ROOT, video_id)
 
             for gid, g in best_data["groups"].items():
                 if not g["phases"]:

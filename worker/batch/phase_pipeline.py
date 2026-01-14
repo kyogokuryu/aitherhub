@@ -178,11 +178,37 @@ Chỉ trả JSON:
 # FALLBACK LOGIC FOR PHASE BOUNDARIES
 # ======================================================
 
+# def read_phase_start(files, frame_dir, frame_idx):
+#     """
+#     Try to read viewer_count at phase START.
+#     If GPT fails, scan forward up to MAX_FALLBACK frames.
+#     """
+#     for i in range(MAX_FALLBACK):
+#         idx = frame_idx + i
+#         if idx >= len(files):
+#             break
+
+#         path = os.path.join(frame_dir, files[idx])
+#         data = gpt_read_header(path)
+
+#         # if data and data.get("viewer_count") is not None:
+#         #     return data, idx
+
+#         if data and (
+#             data.get("viewer_count") is not None
+#             or data.get("like_count") is not None
+#         ):
+#             return data, idx
+
+#     return None, frame_idx
 def read_phase_start(files, frame_dir, frame_idx):
     """
-    Try to read viewer_count at phase START.
-    If GPT fails, scan forward up to MAX_FALLBACK frames.
+    Try to read viewer_count and like_count at phase START.
+    Fallback forward up to MAX_FALLBACK frames until we get both or reach limit.
     """
+    best = {"viewer_count": None, "like_count": None}
+    best_idx = frame_idx
+
     for i in range(MAX_FALLBACK):
         idx = frame_idx + i
         if idx >= len(files):
@@ -191,17 +217,51 @@ def read_phase_start(files, frame_dir, frame_idx):
         path = os.path.join(frame_dir, files[idx])
         data = gpt_read_header(path)
 
-        if data and data.get("viewer_count") is not None:
-            return data, idx
+        if isinstance(data, dict):
+            if best["viewer_count"] is None and data.get("viewer_count") is not None:
+                best["viewer_count"] = data.get("viewer_count")
+                best_idx = idx
+
+            if best["like_count"] is None and data.get("like_count") is not None:
+                best["like_count"] = data.get("like_count")
+                best_idx = idx
+
+        # If we already have both, stop early
+        if best["viewer_count"] is not None and best["like_count"] is not None:
+            break
+
+    if best["viewer_count"] is not None or best["like_count"] is not None:
+        return best, best_idx
 
     return None, frame_idx
 
 
+
+# def read_phase_end(files, frame_dir, frame_idx):
+#     """
+#     Try to read viewer_count at phase END.
+#     If GPT fails, scan backward up to MAX_FALLBACK frames.
+#     """
+#     for i in range(MAX_FALLBACK):
+#         idx = frame_idx - i
+#         if idx < 0:
+#             break
+
+#         path = os.path.join(frame_dir, files[idx])
+#         data = gpt_read_header(path)
+
+#         if data and data.get("viewer_count") is not None:
+#             return data, idx
+
+#     return None, frame_idx
 def read_phase_end(files, frame_dir, frame_idx):
     """
-    Try to read viewer_count at phase END.
-    If GPT fails, scan backward up to MAX_FALLBACK frames.
+    Try to read viewer_count and like_count at phase END.
+    Fallback backward up to MAX_FALLBACK frames until we get both or reach limit.
     """
+    best = {"viewer_count": None, "like_count": None}
+    best_idx = frame_idx
+
     for i in range(MAX_FALLBACK):
         idx = frame_idx - i
         if idx < 0:
@@ -210,8 +270,21 @@ def read_phase_end(files, frame_dir, frame_idx):
         path = os.path.join(frame_dir, files[idx])
         data = gpt_read_header(path)
 
-        if data and data.get("viewer_count") is not None:
-            return data, idx
+        if isinstance(data, dict):
+            if best["viewer_count"] is None and data.get("viewer_count") is not None:
+                best["viewer_count"] = data.get("viewer_count")
+                best_idx = idx
+
+            if best["like_count"] is None and data.get("like_count") is not None:
+                best["like_count"] = data.get("like_count")
+                best_idx = idx
+
+        # If we already have both, stop early
+        if best["viewer_count"] is not None and best["like_count"] is not None:
+            break
+
+    if best["viewer_count"] is not None or best["like_count"] is not None:
+        return best, best_idx
 
     return None, frame_idx
 

@@ -237,16 +237,31 @@ def merge_close_boundaries(indices, min_gap=3):
     return merged
 
 
+# def filter_min_phase(indices, total_frames, min_len=25):
+#     result = []
+#     extended = [0] + indices + [total_frames - 1]
+#     phase_len = np.diff(extended)
+
+#     for i in range(1, len(extended) - 1):
+#         if phase_len[i] >= min_len:
+#             result.append(extended[i])
+
+#     return result
+
 def filter_min_phase(indices, total_frames, min_len=25):
     result = []
     extended = [0] + indices + [total_frames - 1]
     phase_len = np.diff(extended)
 
     for i in range(1, len(extended) - 1):
+        if extended[i] < min_len:
+            continue
+
         if phase_len[i] >= min_len:
             result.append(extended[i])
 
     return result
+
 
 
 def apply_max_phase(indices, total_frames, max_len=150):

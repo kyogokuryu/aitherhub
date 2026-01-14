@@ -244,6 +244,30 @@ def update_video_phase_description_sync(*args, **kwargs):
 
 
 # ---------- STEP 7: upsert phase_groups + update video_phases ----------
+async def get_all_phase_groups():
+    sql = text("""
+        SELECT id, centroid, size
+        FROM phase_groups
+        ORDER BY id ASC
+    """)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(sql)
+        rows = result.fetchall()
+
+    groups = []
+    for r in rows:
+        groups.append({
+            "group_id": r.id,
+            "centroid": json.loads(r.centroid),
+            "size": r.size,
+        })
+    return groups
+
+
+def get_all_phase_groups_sync():
+    loop = get_event_loop()
+    return loop.run_until_complete(get_all_phase_groups())
+
 
 async def upsert_phase_group(group_id: int, centroid: list[float], size: int):
     sql = text("""
@@ -291,6 +315,48 @@ def update_phase_group_for_video_phase_sync(*args, **kwargs):
     loop = get_event_loop()
     return loop.run_until_complete(update_phase_group_for_video_phase(*args, **kwargs))
 
+
+async def create_phase_group(centroid: list[float], size: int):
+    sql = text("""
+        INSERT INTO phase_groups (centroid, size)
+        VALUES (:centroid, :size)
+        RETURNING id
+    """)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(sql, {
+            "centroid": json.dumps(centroid),
+            "size": size,
+        })
+        row = result.fetchone()
+        await session.commit()
+    return row[0]
+
+
+def create_phase_group_sync(*args, **kwargs):
+    loop = get_event_loop()
+    return loop.run_until_complete(create_phase_group(*args, **kwargs))
+
+
+async def update_phase_group(group_id: int, centroid: list[float], size: int):
+    sql = text("""
+        UPDATE phase_groups
+        SET centroid = :centroid,
+            size = :size,
+            updated_at = now()
+        WHERE id = :id
+    """)
+    async with AsyncSessionLocal() as session:
+        await session.execute(sql, {
+            "id": group_id,
+            "centroid": json.dumps(centroid),
+            "size": size,
+        })
+        await session.commit()
+
+
+def update_phase_group_sync(*args, **kwargs):
+    loop = get_event_loop()
+    return loop.run_until_complete(update_phase_group(*args, **kwargs))
 
 # ---------- STEP 8: upsert group_best_phases ----------
 
