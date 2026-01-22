@@ -2,7 +2,7 @@ from typing import List
 import json
 import asyncio
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter, HTTPException, Depends, Response, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -56,6 +56,60 @@ async def generate_download_url(payload: GenerateDownloadURLRequest):
         return GenerateDownloadURLResponse(**result)
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to generate download URL: {exc}")
+
+
+@router.post("/generate-view-url", response_model=GenerateDownloadURLResponse)
+async def generate_view_url(payload: GenerateDownloadURLRequest):
+    try:
+        result = await video_service.generate_view_url(
+            email=payload.email,
+            video_id=payload.video_id,
+            filename=payload.filename,
+            expires_in_minutes=payload.expires_in_minutes,
+        )
+        # Map view_url to download_url for response compatibility
+        result["download_url"] = result.pop("view_url")
+        return GenerateDownloadURLResponse(**result)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to generate view URL: {exc}")
+
+
+@router.get("/stream/{video_id}")
+async def stream_video(
+    video_id: str,
+    request: Request,
+    current_user=Depends(get_current_user)
+):
+    """Stream video directly with proper headers for true video playback"""
+    try:
+        # Get user email from current user
+        email = current_user.email
+
+        # Generate view URL
+        result = await video_service.generate_view_url(
+            email=email,
+            video_id=video_id,
+            expires_in_minutes=60,  # 1 hour for streaming
+        )
+
+        view_url = result["view_url"]
+        content_type = result.get("content_type", "video/mp4")
+
+        # For true streaming, we could proxy the request with proper headers
+        # For now, redirect to the view URL with proper headers
+        from fastapi.responses import RedirectResponse
+
+        response = RedirectResponse(url=view_url)
+        response.headers["Content-Type"] = content_type
+        response.headers["Accept-Ranges"] = "bytes"
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "Range"
+        response.headers["Access-Control-Expose-Headers"] = "Accept-Ranges, Content-Range"
+
+        return response
+
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to stream video: {exc}")
 
 
 @router.post("/upload-complete", response_model=UploadCompleteResponse)

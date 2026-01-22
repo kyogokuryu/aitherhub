@@ -8,10 +8,12 @@ import CloseSvg from "../../assets/icons/close.svg";
 export default function VideoPreviewModal({ open, onClose, videoUrl, timeStart = 0, timeEnd = null }) {
   const videoRef = useRef(null);
   const hasSetupRef = useRef(false);
+  const hasSeekedRef = useRef(false);
   const [isLoading, setIsLoading] = useState(true);
   const [playBlocked, setPlayBlocked] = useState(false);
   const [bufferedProgress, setBufferedProgress] = useState(0);
   const [showCustomLoading, setShowCustomLoading] = useState(true);
+  const [videoEnded, setVideoEnded] = useState(false);
   const prevOpenRef = useRef(false);
   const prevVideoUrlRef = useRef(null);
 
@@ -22,12 +24,13 @@ export default function VideoPreviewModal({ open, onClose, videoUrl, timeStart =
 
     // Reset when modal closes or video URL changes
     if ((!open && prevOpen) || (videoUrl !== prevVideoUrl)) {
-      console.log('🔄 Resetting states');
       setIsLoading(true); // eslint-disable-line
       setPlayBlocked(false);
       setBufferedProgress(0);
       setShowCustomLoading(true); // Always show custom loading initially
+      setVideoEnded(false); // Reset ended state
       hasSetupRef.current = false;
+      hasSeekedRef.current = false;
     }
 
     prevOpenRef.current = open;
@@ -36,14 +39,6 @@ export default function VideoPreviewModal({ open, onClose, videoUrl, timeStart =
 
   // Seek to start time when modal opens or URL changes
   useEffect(() => {
-    console.log('🎬 VideoPreviewModal useEffect triggered:', {
-      open,
-      videoUrl: !!videoUrl,
-      timeStart,
-      timeEnd,
-      videoRef: !!videoRef.current,
-      currentTime: videoRef.current?.currentTime
-    });
 
     // Skip if modal closed or no video
     if (!open || !videoUrl) {
@@ -53,50 +48,33 @@ export default function VideoPreviewModal({ open, onClose, videoUrl, timeStart =
     const setupVideoSeekAndPlay = () => {
       const vid = videoRef.current;
       if (!vid || hasSetupRef.current) {
-        console.log('⏳ Video not ready or already setup:', {
-          videoRef: !!vid,
-          hasSetup: hasSetupRef.current
-        });
         return;
       }
 
-      console.log('🎬 Setting up seek/play logic');
       hasSetupRef.current = true;
-
-      let hasSeeked = false;
 
       const seekAndPlay = async () => {
         try {
-          console.log('🎯 Starting seekAndPlay, current readyState:', vid.readyState);
-          console.log('🎯 Current time before seek:', vid.currentTime);
-
           // Show custom loading when starting seek/play process
           setShowCustomLoading(true);
           setIsLoading(true);
 
           // Only seek if we haven't seeked yet and current time is not at desired position
-          const shouldSeek = !hasSeeked && Math.abs(vid.currentTime - timeStart) > 0.5;
+          const shouldSeek = !hasSeekedRef.current && Math.abs(vid.currentTime - timeStart) > 0.5;
 
           if (shouldSeek && timeStart !== null && timeStart !== undefined) {
-            console.log('⏰ Setting currentTime to:', timeStart);
             vid.currentTime = timeStart;
-            hasSeeked = true;
-            console.log('⏰ Current time after seek:', vid.currentTime);
-          } else {
-            console.log('⏭️ Skipping seek - already at correct position or already seeked');
+            hasSeekedRef.current = true;
           }
 
           // Try to play, handle promise rejection (autoPlay blocked)
           try {
-            console.log('▶️ Attempting to play video...');
             await vid.play();
-            console.log('✅ Video started playing successfully');
             setPlayBlocked(false);
             setIsLoading(false);
             // Keep custom loading for a moment to show success, then hide
             setTimeout(() => setShowCustomLoading(false), 500);
-          } catch (error) {
-            console.log('❌ AutoPlay blocked:', error.message);
+          } catch {
             setPlayBlocked(true);
             setIsLoading(false);
             // Keep custom loading to show play button
@@ -110,46 +88,37 @@ export default function VideoPreviewModal({ open, onClose, videoUrl, timeStart =
       };
 
       const handleCanPlay = () => {
-        console.log('🎬 handleCanPlay triggered, readyState:', vid.readyState);
+        // Skip if video has ended at timeEnd (prevent infinite loop)
+        if (videoEnded) {
+          return;
+        }
+
         // Only seek if we haven't seeked yet
-        if (!hasSeeked) {
+        if (!hasSeekedRef.current) {
           seekAndPlay();
-        } else {
-          console.log('⏭️ Skipping seek in handleCanPlay - already seeked');
         }
       };
 
       const handleLoadedMetadata = () => {
-        console.log('📋 handleLoadedMetadata triggered, readyState:', vid.readyState);
         // If video is already ready to play, seek immediately
         if (vid.readyState >= 3) { // HAVE_FUTURE_DATA or higher
-          console.log('📋 Video ready to play, calling seekAndPlay');
           seekAndPlay();
-        } else {
-          console.log('📋 Video not ready yet, waiting for canplay');
         }
       };
 
       // Add event listeners
-      console.log('👂 Adding event listeners');
       vid.addEventListener("loadedmetadata", handleLoadedMetadata);
       vid.addEventListener("canplay", handleCanPlay);
 
       // Check current state
-      console.log('🔍 Checking current video state - readyState:', vid.readyState);
       if (vid.readyState >= 3) {
-        console.log('🔍 Video already ready, seeking immediately');
         seekAndPlay();
       } else if (vid.readyState >= 1) {
-        console.log('🔍 Metadata loaded, checking if can seek');
         // Metadata loaded but not ready to play yet
         handleLoadedMetadata();
-      } else {
-        console.log('🔍 Video not loaded yet, waiting for events');
       }
 
       return () => {
-        console.log('🧹 Cleaning up event listeners');
         vid.removeEventListener("loadedmetadata", handleLoadedMetadata);
         vid.removeEventListener("canplay", handleCanPlay);
       };
@@ -162,7 +131,6 @@ export default function VideoPreviewModal({ open, onClose, videoUrl, timeStart =
     if (!hasSetupRef.current) {
       const timeoutId = setTimeout(() => {
         if (open && videoUrl && !hasSetupRef.current) {
-          console.log('🔄 Retrying setup after delay');
           setupVideoSeekAndPlay();
         }
       }, 100);
@@ -176,7 +144,7 @@ export default function VideoPreviewModal({ open, onClose, videoUrl, timeStart =
     return () => {
       if (cleanup) cleanup();
     };
-  }, [videoUrl, timeStart, timeEnd, open]);
+  }, [videoUrl, timeStart, timeEnd, open, videoEnded]);
 
   const handleTimeUpdate = (e) => {
     if (!timeEnd) return;
@@ -184,6 +152,7 @@ export default function VideoPreviewModal({ open, onClose, videoUrl, timeStart =
       if (e.currentTarget.currentTime >= timeEnd) {
         e.currentTarget.currentTime = timeEnd;
         e.currentTarget.pause();
+        setVideoEnded(true); // Mark video as ended to prevent infinite canplay loops
       }
     } catch {
       // ignore
@@ -256,18 +225,23 @@ export default function VideoPreviewModal({ open, onClose, videoUrl, timeStart =
                 autoPlay
                 muted
                 playsInline
+                preload="metadata"
                 poster="" // Disable default poster/loading
                 className="w-full h-full"
                 style={{ backgroundColor: 'black' }} // Prevent flash of white
                 onTimeUpdate={handleTimeUpdate}
-                onProgress={handleProgress}
-                onLoadStart={() => console.log('🎬 Video onLoadStart')}
-                onLoadedData={() => console.log('🎬 Video onLoadedData')}
-                onCanPlay={() => console.log('🎬 Video onCanPlay')}
-                onCanPlayThrough={() => console.log('🎬 Video onCanPlayThrough')}
-                onPlay={() => console.log('▶️ Video started playing')}
-                onPause={() => console.log('⏸️ Video paused')}
-                onError={(e) => console.error('❌ Video error:', e)}
+                onProgress={(e) => {
+                  handleProgress();
+                  const video = e.target;
+                  const buffered = video.buffered.length > 0 ? video.buffered.end(video.buffered.length - 1) : 0;
+                  console.log(`📊 Progress - buffered: ${buffered.toFixed(1)}s / ${video.duration?.toFixed(1) || '?'}s`);
+                }}
+                onLoadStart={() => console.log('🎬 Video loadStart - enabling streaming mode')}
+                onLoadedMetadata={() => console.log('📋 Metadata loaded - video ready for streaming')}
+                onCanPlay={() => console.log('🎬 CanPlay - video buffered and ready')}
+                onCanPlayThrough={() => console.log('🎬 CanPlayThrough - video fully buffered')}
+                onEnded={() => setVideoEnded(true)}
+                onError={(e) => console.error('Video error:', e)}
               />
 
               {/* Loading Overlay */}
@@ -305,6 +279,42 @@ export default function VideoPreviewModal({ open, onClose, videoUrl, timeStart =
                       <span>▶️</span>
                       再生する
                     </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Video Ended Overlay */}
+              {videoEnded && !isLoading && (
+                <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                  <div className="flex flex-col items-center gap-4">
+                    <div className="text-white text-center">
+                      <p className="text-lg mb-2">動画が終了しました</p>
+                      <p className="text-sm text-gray-300">プレビューを終了します</p>
+                    </div>
+                    <div className="flex gap-3">
+                      <button
+                        onClick={() => {
+                          setVideoEnded(false);
+                          hasSeekedRef.current = false; // Allow replay
+                          if (videoRef.current) {
+                            videoRef.current.currentTime = timeStart || 0;
+                            videoRef.current.play().catch(() => {
+                              setPlayBlocked(true);
+                            });
+                          }
+                        }}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-colors flex items-center gap-2"
+                      >
+                        <span>🔄</span>
+                        もう一度見る
+                      </button>
+                      <button
+                        onClick={onClose}
+                        className="px-4 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium transition-colors"
+                      >
+                        閉じる
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}

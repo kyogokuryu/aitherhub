@@ -108,26 +108,16 @@ export default function VideoDetail({ video }) {
   };
 
   const handlePhasePreview = async (phase) => {
-    console.log('🎬 handlePhasePreview called with phase:', {
-      time_start: phase?.time_start,
-      time_end: phase?.time_end,
-      phase_index: phase?.phase_index
-    });
-
     if (!phase?.time_start && !phase?.time_end) {
-      console.log('❌ No time_start or time_end, skipping preview');
       return;
     }
     if (!videoData?.id) {
-      console.log('❌ No videoData.id, skipping preview');
       return;
     }
 
     setPreviewLoading(true);
     try {
-      console.log('📡 Fetching download URL for video ID:', videoData.id);
       const url = await VideoService.getDownloadUrl(videoData.id);
-      console.log('✅ Got download URL:', url ? 'URL received' : 'No URL');
 
       const previewDataObj = {
         url,
@@ -135,7 +125,6 @@ export default function VideoDetail({ video }) {
         timeEnd: phase.time_end != null ? Number(phase.time_end) : null,
       };
 
-      console.log('🎯 Setting preview data:', previewDataObj);
       setPreviewData(previewDataObj);
     } catch (err) {
       console.error("❌ Failed to load preview url", err);

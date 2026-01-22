@@ -199,12 +199,14 @@ class VideoService extends BaseApiService {
 
 
   /**
-   * Generate a download URL for a video from Azure Blob Storage
+   * Generate a view URL for video streaming/playback from Azure Blob Storage
    * @param {string} videoId - The video ID
    * @param {Object} options
    * @param {number} [options.expiresInMinutes=60] - URL expiration time in minutes
    * @param {string} [options.email] - User email (required by backend). Will fallback to localStorage if not provided.
-   * @returns {Promise<string>} - Download URL with SAS token
+   * @param {number} [options.startTime] - Start time in seconds for preview
+   * @param {number} [options.endTime] - End time in seconds for preview
+   * @returns {Promise<string>} - View URL with SAS token optimized for streaming
    */
   async getDownloadUrl(videoId, { expiresInMinutes = 60, email } = {}) {
     try {
@@ -230,7 +232,7 @@ class VideoService extends BaseApiService {
         }
       }
 
-      const response = await this.post(`/api/v1/videos/generate-download-url`, payload);
+      const response = await this.post(`/api/v1/videos/generate-view-url`, payload);
       return response?.download_url || response?.data?.download_url || response;
     } catch (err) {
       console.error("Failed to get download URL:", err);
