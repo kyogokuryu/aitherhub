@@ -536,6 +536,183 @@ def rewrite_report_3_with_gpt(raw_video_insight):
     }
 
 
+def build_report_3_structure_vs_benchmark_raw(
+    current_features: dict,
+    best_features: dict,
+    group_stats: dict | None = None,
+):
+    """
+    Deterministic, rule-based.
+    Compare current video structure vs benchmark video structure.
+    Output: JSON-like dict, language-agnostic.
+    """
+
+    def pct(a, b):
+        if not b:
+            return None
+        return (a - b) / b
+
+    result = {
+        "type": "video_structure_vs_benchmark",
+        "metrics": {},
+        "judgements": [],
+        "problems": [],
+        "suggestions": [],
+    }
+
+    # ---------- Pacing ----------
+    cur_avg = current_features.get("avg_phase_duration", 0)
+    best_avg = best_features.get("avg_phase_duration", 0)
+
+    if best_avg > 0:
+        delta = pct(cur_avg, best_avg)
+        result["metrics"]["avg_phase_duration"] = {
+            "current": cur_avg,
+            "benchmark": best_avg,
+            "delta_ratio": delta,
+        }
+
+        if delta is not None and delta > 0.25:
+            result["judgements"].append("pacing_slower_than_benchmark")
+            result["problems"].append("average_phase_duration_too_long")
+            result["suggestions"].append("shorten_each_phase_to_increase_pacing")
+        elif delta is not None and delta < -0.25:
+            result["judgements"].append("pacing_faster_than_benchmark")
+        else:
+            result["judgements"].append("pacing_similar_to_benchmark")
+
+    # ---------- Switch rate ----------
+    cur_switch = current_features.get("phase_switch_rate", 0)
+    best_switch = best_features.get("phase_switch_rate", 0)
+
+    if best_switch > 0:
+        delta = pct(cur_switch, best_switch)
+        result["metrics"]["phase_switch_rate"] = {
+            "current": cur_switch,
+            "benchmark": best_switch,
+            "delta_ratio": delta,
+        }
+
+        if delta is not None and delta < -0.3:
+            result["problems"].append("phase_switch_too_infrequent")
+            result["suggestions"].append("increase_phase_switch_frequency")
+
+    # ---------- Structure balance ----------
+    for key in ["early_ratio", "mid_ratio", "late_ratio"]:
+        cur_v = current_features.get(key)
+        best_v = best_features.get(key)
+        if cur_v is None or best_v is None:
+            continue
+
+        delta = pct(cur_v, best_v)
+        result["metrics"][key] = {
+            "current": cur_v,
+            "benchmark": best_v,
+            "delta_ratio": delta,
+        }
+
+        if delta is not None and abs(delta) > 0.3:
+            result["problems"].append(f"{key}_distribution_deviates_from_benchmark")
+            result["suggestions"].append(f"adjust_{key}_distribution_toward_benchmark")
+
+    # ---------- Complexity ----------
+    cur_n_phase = current_features.get("num_phases", 0)
+    best_n_phase = best_features.get("num_phases", 0)
+
+    if best_n_phase > 0:
+        delta = pct(cur_n_phase, best_n_phase)
+        result["metrics"]["num_phases"] = {
+            "current": cur_n_phase,
+            "benchmark": best_n_phase,
+            "delta_ratio": delta,
+        }
+
+        if delta is not None and delta < -0.3:
+            result["problems"].append("too_few_phases_compared_to_benchmark")
+            result["suggestions"].append("increase_number_of_phases_or_segments")
+        elif delta is not None and delta > 0.5:
+            result["problems"].append("too_many_phases_compared_to_benchmark")
+            result["suggestions"].append("merge_or_simplify_phases")
+
+    # ---------- Overall judgement ----------
+    if result["problems"]:
+        result["overall"] = "structure_quality_worse_than_benchmark"
+    else:
+        result["overall"] = "structure_quality_similar_or_better_than_benchmark"
+
+    return result
+
+PROMPT_REPORT_3_STRUCTURE = """
+あなたはライブコマース動画の「構造品質」を分析する専門家です。
+
+以下は：
+- 現在の動画と、同じ構造グループ内のベンチマーク動画の「構造比較RAWデータ」です。
+
+あなたのタスク：
+- RAWデータの内容のみを使って、動画制作者向けの実用的なフィードバックレポートを書いてください。
+- テンポ、構成バランス、複雑さ、全体の流れに注目してください。
+- 改善点がある場合は、必ず具体的な改善アドバイスを含めてください。
+
+ルール：
+- 数値を捏造しない
+- 入力にない事実を推測しない
+- 内部システムやIDの話をしない
+- 出力は必ず JSON 形式
+
+出力形式：
+{
+  "video_insights": [
+    {
+      "title": "短いタイトル",
+      "content": "数文の説明"
+    }
+  ]
+}
+
+入力RAWデータ：
+{data}
+""".strip()
+
+def rewrite_report_3_structure_with_gpt(raw_struct_report: dict):
+    payload = json.dumps(raw_struct_report, ensure_ascii=False, indent=2)
+    prompt = PROMPT_REPORT_3_STRUCTURE.replace("{data}", payload)
+
+    # Dùng đúng hàm GPT đang dùng trong report_pipeline hiện tại
+    # Ví dụ:
+    resp = client.responses.create(
+        model=GPT5_MODEL,
+        input=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "input_text",
+                        "text": prompt
+                    }
+                ]
+            }
+        ],
+        max_output_tokens=2048
+    )
+
+    parsed = safe_json_load(resp.output_text)
+
+    if parsed and "video_insights" in parsed:
+        return parsed
+
+    # Fallback cứng để không làm gãy pipeline
+    return {
+        "video_insights": [
+            {
+                "title": "Không thể phân tích",
+                "content": "GPT không trả về đúng định dạng mong muốn."
+            }
+        ]
+    }
+
+
+
+
 # ======================================================
 # SAVE REPORTS
 # ======================================================
