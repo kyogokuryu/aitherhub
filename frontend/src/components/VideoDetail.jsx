@@ -38,6 +38,27 @@ export default function VideoDetail({ video }) {
     margin-top: 0.4rem;
     margin-bottom: 0.4rem;
   }
+  .markdown ul,
+  .markdown ol {
+    margin: 0.4rem 0 0.4rem 1.25rem;
+    padding-left: 1rem;
+    list-style-position: outside;
+  }
+  .markdown ul {
+    list-style-type: disc;
+  }
+  .markdown ol {
+    list-style-type: decimal;
+  }
+  .markdown li {
+    margin: 0.25rem 0;
+    color: inherit;
+  }
+  .markdown li::marker {
+    color: rgba(255,255,255,0.95);
+    opacity: 0.95;
+    font-size: 0.95em;
+  }
   .markdown hr {
     border: none;
     border-top: 1px solid rgba(255,255,255,0.12);
