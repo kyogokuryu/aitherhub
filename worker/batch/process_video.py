@@ -602,9 +602,9 @@ def main():
 
 
         # ---------- ensure best_data for resume ----------
+        # ---------- ensure best_data for resume ----------
         if 'best_data' not in locals() or best_data is None:
             print("[RESUME] Reload best_data from artifact")
-            from best_phase_pipeline import load_group_best_phases
             best_data = load_group_best_phases(ART_ROOT, video_id)
 
         # =========================
