@@ -9,6 +9,8 @@ from azure.storage.blob import (
     BlobServiceClient,
     BlobSasPermissions,
     generate_blob_sas,
+    generate_container_sas,
+    ContainerSasPermissions,
 )
 
 CONNECTION_STRING = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
@@ -124,13 +126,13 @@ async def generate_download_sas(email: str, video_id: str, filename: str | None 
     # Detect Azurite vs Azure
     is_azurite = "devstoreaccount1" in ACCOUNT_NAME.lower()
     
-    # Generate SAS token with read permission
-    sas_token = generate_blob_sas(
+    # Always generate a container-level SAS with read+list permissions (sp=rl).
+    # Note: container SAS allows listing the container and reading blobs.
+    sas_token = generate_container_sas(
         account_name=ACCOUNT_NAME,
         container_name=CONTAINER_NAME,
-        blob_name=blob_name,
         account_key=account_key,
-        permission=BlobSasPermissions(read=True),
+        permission=ContainerSasPermissions(read=True, list=True),
         expiry=expiry,
     )
 
