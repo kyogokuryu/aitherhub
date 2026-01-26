@@ -307,10 +307,33 @@ async def get_video_detail(
 
         report3 = []
         if latest:
-            report3.append({
-                "title": latest.title,
-                "content": latest.content,
-            })
+            try:
+                parsed = latest.content
+                if isinstance(parsed, str):
+                    parsed = json.loads(parsed)
+
+                if isinstance(parsed, dict) and parsed.get("video_insights") and isinstance(parsed.get("video_insights"), list):
+                    for item in parsed.get("video_insights"):
+                        report3.append({
+                            "title": item.get("title"),
+                            "content": item.get("content"),
+                        })
+                elif isinstance(parsed, list):
+                    for item in parsed:
+                        report3.append({
+                            "title": item.get("title"),
+                            "content": item.get("content"),
+                        })
+                else:
+                    report3.append({
+                        "title": latest.title,
+                        "content": latest.content,
+                    })
+            except Exception:
+                report3.append({
+                    "title": latest.title,
+                    "content": latest.content,
+                })
 
         return {
             "id": str(video.id),
