@@ -621,7 +621,7 @@ export default function VideoDetail({ video }) {
         ))}
       </h4>
       {/* Video Header */}
-      <div className="flex flex-col lg:ml-[65px] h-full">
+      <div className="flex flex-col overflow-hidden md:overflow-auto lg:ml-[65px] h-full">
         <div className="flex flex-col gap-2">
           <div className="inline-flex self-start items-center bg-white rounded-[50px] h-[41px] px-4">
             <div className="text-[14px] font-bold whitespace-nowrap bg-gradient-to-b from-[#542EBB] to-[#BA69EE] bg-clip-text text-transparent">
@@ -631,7 +631,7 @@ export default function VideoDetail({ video }) {
         </div>
 
         {/* SCROLL AREA */}
-        <div className="mb-[115px] flex-1 overflow-y-auto scrollbar-custom text-left md:mb-0">
+        <div className="flex-1 overflow-y-auto scrollbar-custom text-left md:mb-0">
           {/* Show processing status when video is being processed */}
           {renderProcessingStatus()}
 
