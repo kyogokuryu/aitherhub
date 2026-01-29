@@ -12,6 +12,11 @@ from urllib.parse import quote
 from vision_pipeline import caption_keyframes
 from db_ops import init_db_sync, close_db_sync
 
+from datetime import datetime
+
+LOG_DIR = "logs"
+DOWNLOAD_LOG = os.path.join(LOG_DIR, "download.log")
+
 # Load environment variables
 load_dotenv()
 
@@ -70,6 +75,16 @@ from best_video_pipeline import process_best_video
 
 from video_status import VideoStatus
 from split_video import split_video_into_segments
+
+
+
+def _log_download(msg: str):
+    os.makedirs(LOG_DIR, exist_ok=True)
+    ts = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    line = f"[{ts}] {msg}\n"
+    print(line, end="")  # vẫn in ra console
+    with open(DOWNLOAD_LOG, "a", encoding="utf-8") as f:
+        f.write(line)
 
 # =========================
 # Artifact layout (PERSISTENT)
@@ -245,40 +260,109 @@ def _normalize_blob_url(url: str) -> str:
     base = quote(base, safe=":/")
     return base + "?" + qs
 
+# def _download_blob(blob_url: str, dest_path: str):
+#     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+
+#     # blob_url = _normalize_blob_url(blob_url)
+
+#     try:
+#         print(f"[DL] AzCopy download: {blob_url}")
+#         subprocess.run(
+#             ["/usr/local/bin/azcopy", "copy", blob_url, dest_path, "--overwrite=true"],
+#             check=True,
+#             capture_output=True,
+#             text=True
+#         )
+#         print("[DL] AzCopy completed")
+#         return
+
+#     except FileNotFoundError:
+#         print("[WARN] AzCopy not found. Fallback to requests.")
+
+#     except subprocess.CalledProcessError as e:
+#         print("[WARN] AzCopy failed. Fallback to requests.")
+#         print("STDOUT:", e.stdout)
+#         print("STDERR:", e.stderr)
+
+#     # ---- fallback ----
+#     print("[DL] Fallback to requests.get")
+#     with requests.get(blob_url, stream=True, timeout=60) as r:
+#         r.raise_for_status()
+#         with open(dest_path, "wb") as f:
+#             for chunk in r.iter_content(chunk_size=8 * 1024 * 1024):
+#                 if chunk:
+#                     f.write(chunk)
+
+#     print("[DL] Requests download completed")
+
 def _download_blob(blob_url: str, dest_path: str):
     os.makedirs(os.path.dirname(dest_path), exist_ok=True)
 
     # blob_url = _normalize_blob_url(blob_url)
 
+    _log_download(f"START download")
+    _log_download(f"URL = {blob_url}")
+    _log_download(f"DEST = {dest_path}")
+
     try:
-        print(f"[DL] AzCopy download: {blob_url}")
-        subprocess.run(
+        _log_download("Try AzCopy...")
+
+        result = subprocess.run(
             ["/usr/local/bin/azcopy", "copy", blob_url, dest_path, "--overwrite=true"],
             check=True,
             capture_output=True,
             text=True
         )
-        print("[DL] AzCopy completed")
+
+        _log_download("AzCopy SUCCESS")
+        _log_download("AzCopy STDOUT:")
+        _log_download(result.stdout or "<empty>")
+        _log_download("AzCopy STDERR:")
+        _log_download(result.stderr or "<empty>")
+
         return
 
-    except FileNotFoundError:
-        print("[WARN] AzCopy not found. Fallback to requests.")
+    except FileNotFoundError as e:
+        _log_download("AzCopy NOT FOUND")
+        _log_download(f"Exception: {repr(e)}")
 
     except subprocess.CalledProcessError as e:
-        print("[WARN] AzCopy failed. Fallback to requests.")
-        print("STDOUT:", e.stdout)
-        print("STDERR:", e.stderr)
+        _log_download("AzCopy FAILED")
+        _log_download("AzCopy STDOUT:")
+        _log_download(e.stdout or "<empty>")
+        _log_download("AzCopy STDERR:")
+        _log_download(e.stderr or "<empty>")
+        _log_download(f"Return code: {e.returncode}")
+
+    except Exception as e:
+        _log_download("AzCopy UNKNOWN ERROR")
+        _log_download(f"Exception: {repr(e)}")
 
     # ---- fallback ----
-    print("[DL] Fallback to requests.get")
-    with requests.get(blob_url, stream=True, timeout=60) as r:
-        r.raise_for_status()
-        with open(dest_path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=8 * 1024 * 1024):
-                if chunk:
-                    f.write(chunk)
+    _log_download("Fallback to requests.get")
 
-    print("[DL] Requests download completed")
+    try:
+        with requests.get(blob_url, stream=True, timeout=60) as r:
+            r.raise_for_status()
+
+            total = int(r.headers.get("content-length", 0))
+            downloaded = 0
+
+            with open(dest_path, "wb") as f:
+                for chunk in r.iter_content(chunk_size=8 * 1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+                        downloaded += len(chunk)
+
+            _log_download(f"Requests SUCCESS: downloaded {downloaded} bytes (total={total})")
+
+    except Exception as e:
+        _log_download("Requests FAILED")
+        _log_download(f"Exception: {repr(e)}")
+        raise
+
+    _log_download("END download")
+
 
 
 def _resolve_inputs(args) -> tuple[str, str]:
