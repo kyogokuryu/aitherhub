@@ -240,19 +240,15 @@ def cut_segment(input_path: str, out_path: str, start_sec: float, end_sec: float
 
     tmp_path = out_path + ".tmp"
 
+    # Use stream copy for fastest cut (no re-encoding).
+    # Note: accuracy is keyframe-aligned when using copy; this is intentional.
     cmd = [
         "ffmpeg",
         "-y",
-        "-i", input_path,
         "-ss", str(start_sec),
+        "-i", input_path,
         "-t", str(duration),
-        "-vf", f"scale=-2:{SEGMENT_HEIGHT}",
-        "-c:v", "libx264",
-        "-crf", str(crf),
-        "-preset", preset,
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-f", "mp4",
+        "-c", "copy",
         tmp_path,
     ]
 
