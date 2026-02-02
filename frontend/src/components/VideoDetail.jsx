@@ -90,6 +90,7 @@ export default function VideoDetail({ video }) {
   const [processingStatus, setProcessingStatus] = useState(null);
   const [previewData, setPreviewData] = useState(null); // { url, timeStart, timeEnd }
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [expandedR2, setExpandedR2] = useState({});
   const answerRef = useRef("");
   const streamCancelRef = useRef(null);
   const lastSentRef = useRef({ text: null, t: 0 });
@@ -428,6 +429,31 @@ export default function VideoDetail({ video }) {
           report3: Array.isArray(data.report3) ? data.report3 : (data.report3 ? [data.report3] : []),
         });
 
+        // initialize collapsed state for report2 (closed by default)
+        try {
+          const map = {};
+          const list = Array.isArray(r2) ? r2 : [];
+          list.forEach((it, i) => {
+            const key = it.phase_index ?? i;
+            map[key] = false;
+          });
+          setExpandedR2(map);
+        } catch (e) {
+          setExpandedR2({});
+        }
+
+        // initialize collapsed state for report2 (closed by default)
+        try {
+          const map = {};
+          const list = Array.isArray(r2) ? r2 : [];
+          list.forEach((it, i) => {
+            const key = it.phase_index ?? i;
+            map[key] = false;
+          });
+          setExpandedR2(map);
+        } catch (e) {
+          setExpandedR2({});
+        }
         // Set initial processing status if not done
         if (data.status && data.status !== 'DONE' && data.status !== 'ERROR') {
           setProcessingStatus({
@@ -796,53 +822,77 @@ export default function VideoDetail({ video }) {
                   <div className="mt-2">
                     <div className="text-lg font-semibold mb-2">{window.__t('report2Title') || 'Report 2'}</div>
                     <div className="flex flex-col gap-3">
-                      {(videoData.reports_2 || videoData.reports_1).map((it, idx) => (
-                        <div
-                          key={`r2-${it.phase_index ?? idx}`}
-                          className={`grid grid-cols-1 md:grid-cols-[120px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md""}
-                        `}
-                        >
+                      {(videoData.reports_2 || videoData.reports_1).map((it, idx) => {
+                        const keyId = it.phase_index ?? idx;
+                        const isOpen = !!expandedR2[keyId];
+                        return (
                           <div
-                            className={`flex items-center gap-1 text-sm text-gray-400 font-mono whitespace-nowrap w-fit cursor-pointer hover:text-purple-400 ${previewLoading ? "opacity-60 pointer-events-none" : ""
-                              }`}
+                            key={`r2-${keyId}`}
+                            className={`grid grid-cols-1 md:grid-cols-[120px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md ${previewLoading ? "opacity-60 pointer-events-none" : ""}`}
                             onClick={() => handlePhasePreview(it)}
                             title={window.__t('clickToPreview')}
                           >
-                            <svg
-                              xmlns="http://www.w3.org/2000/svg"
-                              fill="none"
-                              viewBox="0 0 24 24"
-                              strokeWidth="1.5"
-                              stroke="currentColor"
-                              className="size-6 mt-[-2px]"
+                            <div
+                              className={`flex items-center gap-1 text-sm text-gray-400 font-mono whitespace-nowrap w-fit cursor-pointer hover:text-purple-400 transition-colors ${previewLoading ? "opacity-60 pointer-events-none" : ""}`}
+                              onClick={() => handlePhasePreview(it)}
+                              title={window.__t('clickToPreview')}
                             >
-                              <path
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                                d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"
-                              />
-                            </svg>
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                strokeWidth="1.5"
+                                stroke="currentColor"
+                                className="size-6 mt-[-2px]"
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"
+                                />
+                              </svg>
 
-                            {it.time_start != null || it.time_end != null ? (
-                              <>
-                                {formatTime(it.time_start)}
-                                {" – "}
-                                {formatTime(it.time_end)}
-                              </>
-                            ) : (
-                              <span className="text-gray-500">-</span>
-                            )}
-                          </div>
+                              {it.time_start != null || it.time_end != null ? (
+                                <>
+                                  {formatTime(it.time_start)}
+                                  {" – "}
+                                  {formatTime(it.time_end)}
+                                </>
+                              ) : (
+                                <span className="text-gray-500">-</span>
+                              )}
+                            </div>
 
-                          <div className="text-sm text-left text-gray-100">
-                            <div className="markdown">
-                              <ReactMarkdown remarkPlugins={isOldSafariIOS ? [] : [remarkGfm]}>
-                                {it.insight || window.__t('noInsight')}
-                              </ReactMarkdown>
+                            <div className="text-sm text-left text-gray-100 relative min-w-0">
+                              <div className={`${isOpen ? '' : 'truncate'} pr-10`}>
+                                {isOpen ? (
+                                  <div id={`r2-content-${keyId}`} className="markdown">
+                                    <ReactMarkdown remarkPlugins={isOldSafariIOS ? [] : [remarkGfm]}>
+                                      {it.insight || it.phase_description || window.__t('noInsight')}
+                                    </ReactMarkdown>
+                                  </div>
+                                ) : (
+                                  <div className="truncate text-gray-200">
+                                    {(it.insight || it.phase_description || '').split('\n')[0] || <span className="text-gray-500">-</span>}
+                                  </div>
+                                )}
+                              </div>
+
+                              <button
+                                onClick={(e) => { e.stopPropagation(); setExpandedR2((prev) => ({ ...prev, [keyId]: !prev[keyId] })); }}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-purple-400 p-1 rounded z-10 cursor-pointer"
+                                aria-expanded={isOpen}
+                                aria-controls={`r2-content-${keyId}`}
+                                aria-label={isOpen ? window.__t('collapse') : window.__t('expand')}
+                              >
+                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                </svg>
+                              </button>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 )}
