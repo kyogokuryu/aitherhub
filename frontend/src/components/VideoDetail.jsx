@@ -879,7 +879,11 @@ export default function VideoDetail({ video }) {
                                   </div>
                                 ) : (
                                   <div className="truncate text-gray-200">
-                                    {(it.insight || it.phase_description || '').split('\n')[0] || <span className="text-gray-500">-</span>}
+                                    <MarkdownWithTables
+                                      markdown={(it.insight || it.phase_description || '').split('\n')[0] || <span className="text-gray-500">-</span>}
+                                      isOldSafariIOS={isOldSafariIOS}
+                                      keyPrefix={`r2-${keyId}`}
+                                    />
                                   </div>
                                 )}
                               </div>
