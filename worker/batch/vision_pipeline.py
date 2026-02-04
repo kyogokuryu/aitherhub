@@ -3,10 +3,12 @@ import time
 import random
 import base64
 import json
-
-from openai import AzureOpenAI
+import asyncio
+from functools import partial
+from openai import AzureOpenAI, RateLimitError, APIError, APITimeoutError
 from decouple import config
 
+MAX_CONCURRENCY = 8
 
 # =========================
 # ENV & CLIENT
@@ -63,11 +65,56 @@ def encode_image(path):
 # =========================
 # STEP 4 – GPT IMAGE CAPTION
 # =========================
+async def gpt_image_caption_async(
+    image_path: str,
+    sem: asyncio.Semaphore,
+    max_retry: int = 3,
+):
+    async with sem:
+        loop = asyncio.get_event_loop()
+
+        for attempt in range(max_retry):
+            try:
+                return await loop.run_in_executor(
+                    None,
+                    partial(gpt_image_caption, image_path)
+                )
+
+            except (RateLimitError, APITimeoutError, APIError):
+                sleep_time = (2 ** attempt) + random.uniform(0, 0.5)
+                await asyncio.sleep(sleep_time)
+
+            except Exception:
+                return None
+
+        return None
+
+
+async def process_one_caption_task(
+    frame_idx,
+    files,
+    frame_dir,
+    sem,
+    results,
+):
+    if frame_idx < 0 or frame_idx >= len(files):
+        return
+
+    path = os.path.join(frame_dir, files[frame_idx])
+    data = await gpt_image_caption_async(path, sem)
+
+    results[frame_idx] = {
+        "frame_index": frame_idx,
+        "image": files[frame_idx],
+        "caption": (
+            data.get("visual_phase_description")
+            if isinstance(data, dict) else None
+        )
+    }
 
 def gpt_image_caption(image_path):
     img_b64 = encode_image(image_path)
 
-    # ===== PROMPT GỐC – KHÔNG ĐƯỢC SỬA =====
     prompt = """
 Ảnh này là một key frame đại diện cho MỘT PHASE trong livestream bán hàng.
 
@@ -88,39 +135,23 @@ Chỉ trả JSON:
   "visual_phase_description": "string"
 }
 """.strip()
-    # =====================================
 
-    for attempt in range(1, MAX_RETRY + 1):
-        try:
-            resp = client.responses.create(
-                model=GPT5_MODEL,
-                input=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "input_text", "text": prompt},
-                        {
-                            "type": "input_image",
-                            "image_url": f"data:image/jpeg;base64,{img_b64}"
-                        }
-                    ]
-                }],
-                max_output_tokens=1024
-            )
+    resp = client.responses.create(
+        model=GPT5_MODEL,
+        input=[{
+            "role": "user",
+            "content": [
+                {"type": "input_text", "text": prompt},
+                {
+                    "type": "input_image",
+                    "image_url": f"data:image/jpeg;base64,{img_b64}"
+                }
+            ]
+        }],
+        max_output_tokens=1024
+    )
 
-            raw = resp.output_text
-            data = safe_json_load(raw)
-
-            if data:
-                return data
-
-        except Exception:
-            pass
-
-        wait = 2 * attempt + random.uniform(0.5, 1.5)
-        print(f"[RETRY] caption retry #{attempt}, sleep {wait:.1f}s")
-        time.sleep(wait)
-
-    return None
+    return safe_json_load(resp.output_text)
 
 
 # =========================
@@ -132,23 +163,30 @@ def caption_keyframes(
     rep_frames: list[int],
 ):
     files = sorted(os.listdir(frame_dir))
-    results = []
+    results = {}
 
-    for idx in rep_frames:
-        img_path = os.path.join(frame_dir, files[idx])
+    async def runner():
+        sem = asyncio.Semaphore(MAX_CONCURRENCY)
+        tasks = []
 
-        caption_data = gpt_image_caption(img_path)
-
-        results.append({
-            "frame_index": idx,
-            "image": files[idx],
-            "caption": (
-                caption_data.get("visual_phase_description")
-                if caption_data else None
+        for idx in rep_frames:
+            tasks.append(
+                process_one_caption_task(
+                    idx, files, frame_dir, sem, results
+                )
             )
-        })
 
-        # sleep giống code gốc
-        time.sleep(0.3)
+        await asyncio.gather(*tasks)
 
-    return results
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = None
+
+    if loop and loop.is_running():
+        fut = asyncio.run_coroutine_threadsafe(runner(), loop)
+        fut.result()
+    else:
+        asyncio.run(runner())
+
+    return [results[i] for i in sorted(results)]

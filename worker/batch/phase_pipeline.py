@@ -6,8 +6,12 @@ import time
 import random
 
 from db_ops import insert_video_phase_sync
-from openai import AzureOpenAI
+from openai import AzureOpenAI, RateLimitError, APIError, APITimeoutError
 from decouple import config
+import asyncio
+from functools import partial
+
+MAX_CONCURRENCY = 8
 
 
 # ======================================================
@@ -67,7 +71,6 @@ def safe_json_load(text):
     except json.JSONDecodeError:
         return None
 
-
 def encode_image(path):
     """
     Read image file and encode to base64
@@ -75,6 +78,132 @@ def encode_image(path):
     """
     with open(path, "rb") as f:
         return base64.b64encode(f.read()).decode("utf-8")
+
+
+async def gpt_read_header_async(
+    image_path: str,
+    sem: asyncio.Semaphore,
+    max_retry: int = 3,
+):
+    """
+    Async wrapper for gpt_read_header with:
+    - semaphore concurrency control
+    - retry on rate-limit / transient errors
+    - exponential backoff + jitter
+
+    Return:
+    - parsed JSON dict
+    - or None if all retries fail
+    """
+
+    async with sem:
+        loop = asyncio.get_event_loop()
+
+        for attempt in range(max_retry):
+            try:
+                return await loop.run_in_executor(
+                    None,
+                    partial(gpt_read_header, image_path)
+                )
+
+            except (RateLimitError, APITimeoutError, APIError) as e:
+                sleep_time = (2 ** attempt) + random.uniform(0, 0.5)
+                print(
+                    f"[VISION][RETRY] {image_path} "
+                    f"attempt {attempt + 1}/{max_retry}, "
+                    f"sleep {sleep_time:.1f}s ({type(e).__name__})"
+                )
+                await asyncio.sleep(sleep_time)
+
+            except Exception as e:
+                # lỗi không xác định → không retry vô hạn
+                print(f"[VISION][ERROR] {image_path}: {e}")
+                return None
+
+        print(f"[VISION][FAIL] {image_path} after {max_retry} retries")
+        return None
+
+async def process_one_task(task, files, frame_dir, sem, phase_results):
+    phase_idx = task["phase_index"]
+    role = task["role"]
+    frame_idx = task["frame_idx"]
+
+    if frame_idx < 0 or frame_idx >= len(files):
+        return
+
+    path = os.path.join(frame_dir, files[frame_idx])
+    data = await gpt_read_header_async(path, sem)
+
+    if phase_idx not in phase_results:
+        phase_results[phase_idx] = {}
+
+    phase_results[phase_idx][role] = data
+    phase_results[phase_idx][f"{role}_used_frame"] = frame_idx
+
+def merge_stat(best, data):
+    """
+    Merge viewer_count / like_count vào best.
+    Return True nếu best đã đủ cả 2.
+    """
+    if not isinstance(data, dict):
+        return False
+
+    if best["viewer_count"] is None and data.get("viewer_count") is not None:
+        best["viewer_count"] = data["viewer_count"]
+
+    if best["like_count"] is None and data.get("like_count") is not None:
+        best["like_count"] = data["like_count"]
+
+    return best["viewer_count"] is not None and best["like_count"] is not None
+
+async def process_phase_role(
+    phase_index,
+    role,
+    base_idx,
+    files,
+    frame_dir,
+    sem,
+    phase_results,
+):
+
+    best = {"viewer_count": None, "like_count": None}
+    used_idx = base_idx  # mặc định là frame gốc
+
+    offsets = range(0, MAX_FALLBACK + 1)
+
+    for off in offsets:
+        idx = base_idx + off if role == "start" else base_idx - off
+        if idx < 0 or idx >= len(files):
+            continue
+
+        path = os.path.join(frame_dir, files[idx])
+
+        # semaphore + retry đã nằm trong gpt_read_header_async
+        data = await gpt_read_header_async(path, sem)
+
+        if isinstance(data, dict):
+            before = dict(best)
+            done = merge_stat(best, data)
+
+            # chỉ update used_idx khi có tiến triển
+            if best != before:
+                used_idx = idx
+
+            # nếu đã đủ viewer + like thì dừng sớm
+            if done:
+                break
+
+        # nhường event loop để phase khác có cơ hội chạy
+        await asyncio.sleep(0)
+
+    if phase_index not in phase_results:
+        phase_results[phase_index] = {}
+
+    phase_results[phase_index][role] = (
+        best if (best["viewer_count"] is not None or best["like_count"] is not None)
+        else None
+    )
+    phase_results[phase_index][f"{role}_used_frame"] = used_idx
 
 
 # def gpt_read_header(image_path):
@@ -293,47 +422,96 @@ def read_phase_end(files, frame_dir, frame_idx):
 # STEP 2 – EXTRACT PHASE STATS (ENTRY)
 # ======================================================
 
-def extract_phase_stats(
-    keyframes,
-    total_frames,
-    frame_dir,
-):
-    """
-    STEP 2 – Extract phase-level metrics using GPT Vision.
+# def extract_phase_stats(
+#     keyframes,
+#     total_frames,
+#     frame_dir,
+# ):
+#     """
+#     STEP 2 – Extract phase-level metrics using GPT Vision.
 
-    For each phase:
-    - read viewer_count / like_count at start
-    - read viewer_count / like_count at end
-    - apply forward/backward fallback if needed
-    """
+#     For each phase:
+#     - read viewer_count / like_count at start
+#     - read viewer_count / like_count at end
+#     - apply forward/backward fallback if needed
+#     """
+#     files = sorted(os.listdir(frame_dir))
+#     results = []
+
+#     # Build phase ranges from keyframes
+#     extended = [0] + keyframes + [total_frames]
+
+#     for i in range(len(extended) - 1):
+#         start = extended[i]
+#         end = extended[i + 1] - 1
+
+#         start_data, start_used = read_phase_start(files, frame_dir, start)
+#         end_data, end_used = read_phase_end(files, frame_dir, end)
+
+#         results.append({
+#             "phase_index": i + 1,
+#             "phase_start_frame": start,
+#             "phase_start_used_frame": start_used,
+#             "start": start_data,
+#             "phase_end_frame": end,
+#             "phase_end_used_frame": end_used,
+#             "end": end_data
+#         })
+
+#         time.sleep(0.05)
+
+#     return results
+
+
+def extract_phase_stats(keyframes, total_frames, frame_dir):
     files = sorted(os.listdir(frame_dir))
-    results = []
-
-    # Build phase ranges from keyframes
     extended = [0] + keyframes + [total_frames]
 
-    for i in range(len(extended) - 1):
-        start = extended[i]
-        end = extended[i + 1] - 1
+    phase_results = {}
 
-        start_data, start_used = read_phase_start(files, frame_dir, start)
-        end_data, end_used = read_phase_end(files, frame_dir, end)
+    async def runner():
+        sem = asyncio.Semaphore(MAX_CONCURRENCY)
+        tasks = []
+
+        for i in range(len(extended) - 1):
+            start = extended[i]
+            end = extended[i + 1] - 1
+            phase_idx = i + 1
+
+            tasks.append(
+                process_phase_role(
+                    phase_idx, "start", start,
+                    files, frame_dir, sem, phase_results
+                )
+            )
+            tasks.append(
+                process_phase_role(
+                    phase_idx, "end", end,
+                    files, frame_dir, sem, phase_results
+                )
+            )
+
+        await asyncio.gather(*tasks)
+
+    asyncio.run(runner())
+
+    results = []
+    for i in range(len(extended) - 1):
+        idx = i + 1
+        r = phase_results.get(idx, {})
 
         results.append({
-            "phase_index": i + 1,
-            "phase_start_frame": start,
-            "phase_start_used_frame": start_used,
-            "start": start_data,
-            "phase_end_frame": end,
-            "phase_end_used_frame": end_used,
-            "end": end_data
+            "phase_index": idx,
+            "phase_start_frame": extended[i],
+            "phase_start_used_frame": r.get("start_used_frame"),
+            "start": r.get("start"),
+            "phase_end_frame": extended[i + 1] - 1,
+            "phase_end_used_frame": r.get("end_used_frame"),
+            "end": r.get("end"),
         })
 
-        # Throttle GPT Vision calls (same as code cũ)
-        # time.sleep(random.uniform(0.5, 1.2))
-        time.sleep(0.05)
-
     return results
+
 
 
 # ======================================================
