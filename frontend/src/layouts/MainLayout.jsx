@@ -45,6 +45,7 @@ export default function MainLayout() {
     }
   }, [openSidebar]);
   const handleVideoSelect = useCallback((video) => {
+    console.log('[MainLayout] handleVideoSelect called with:', video);
     setSelectedVideo(video);
   }, []);
 
@@ -70,6 +71,22 @@ export default function MainLayout() {
 
   const handleUploadSuccess = useCallback(() => {
     setRefreshKey(prev => prev + 1);
+  }, []);
+
+  const handleClearUploadPlaceholder = useCallback(() => {
+    // Clear selectedVideo upload data but keep the video selected
+    // This prevents VideoDetail from detecting upload mode on next render
+    setSelectedVideo(prev => {
+      if (!prev) return prev;
+      // Only clear upload fields, keep the video selected
+      const { uploadFile, uploadUrl, uploadId, userEmail, ...cleanVideo } = prev;
+      return Object.keys(cleanVideo).length > 0 ? cleanVideo : prev;
+    });
+    // Refresh sidebar to show real video (triggers re-fetch)
+    // This happens AFTER clearing selectedVideo to avoid race conditions
+    setTimeout(() => {
+      setRefreshKey(prev => prev + 1);
+    }, 100);
   }, []);
 
   const sidebarProps = useMemo(() => ({
@@ -105,7 +122,7 @@ export default function MainLayout() {
         <main className="w-full md:w-4/5 bg-[linear-gradient(180deg,rgba(69,0,255,1),rgba(155,0,255,1))]
  text-white">
           <MainContent {...mainContentProps}>
-            {selectedVideo && <VideoDetail video={selectedVideo} />}
+            {selectedVideo && <VideoDetail video={selectedVideo} onClearUploadPlaceholder={handleClearUploadPlaceholder} />}
           </MainContent>
         </main>
       </div>

@@ -85,5 +85,7 @@
   "skipButton": "スキップ",
   "resumeUploadDesc": "アップロードが完了していません。続行しますか？",
   "resumeUploadTitle": "再開可能なアップロードが見つかりました",
-  "uploadResumeCleared": "アップロード再開情報を削除しました"
+  "uploadResumeCleared": "アップロード再開情報を削除しました",
+  "uploadingMessage": "アップロード中",
+  "uploadProgressMessage": "ファイルをアップロードしています..."
 }

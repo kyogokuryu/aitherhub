@@ -83,8 +83,75 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
     fetchVideos();
   }, [effectiveUser?.isLoggedIn, effectiveUser?.id, effectiveUser?.email, refreshKey]);
 
+  // Combine videos list with selectedVideo if it's a new upload (not in list yet)
+  const displayVideos = videos;
+  
+  // Check if selectedVideo is a placeholder (upload in progress, not in DB yet)
+  // Placeholder is shown ONLY when:
+  // 1. selectedVideo has uploadUrl (still uploading)
+  // 2. OR selectedVideo not yet in videos list AND has no uploadUrl (just completed, waiting for DB)
+  const showSelectedVideoAsPlaceholder = selectedVideo?.id && 
+    (selectedVideo?.uploadUrl || !videos.find(v => v.id === selectedVideo.id));
+
+  const renderVideoItems = () => {
+    // Always include selected video if it's a placeholder
+    const items = [...displayVideos];
+    
+    // Check if video is already in the list to avoid duplicates
+    const videoExistsInList = items.find(v => v.id === selectedVideo?.id);
+    
+    // Add selected video as placeholder ONLY if:
+    // 1. It's marked as placeholder AND
+    // 2. It's not already in the videos list
+    if (showSelectedVideoAsPlaceholder && !videoExistsInList) {
+      items.unshift({
+        ...selectedVideo,
+        isPlaceholder: true
+      });
+    }
+    
+    return items;
+  };
+
+  // Force refresh videos list when a new video is uploaded
+  const refreshVideosList = async () => {
+    try {
+      const userId = effectiveUser.id || effectiveUser.email;
+      if (userId) {
+        const videoList = await VideoService.getVideosByUser(userId);
+        setVideos(videoList || []);
+        setLoadingVideos(false);
+      }
+    } catch (error) {
+      console.error("Error refreshing videos:", error);
+      setLoadingVideos(false);
+    }
+  };
+
+  // Auto-refresh videos when a new upload is detected (placeholder shown)
+  // Only refresh while still in upload mode (has uploadUrl)
+  useEffect(() => {
+    if (showSelectedVideoAsPlaceholder && selectedVideo?.uploadUrl) {
+      // Initial quick refresh after 1 second
+      const timer1 = setTimeout(() => {
+        refreshVideosList();
+      }, 1000);
+
+      // Backup refresh after 5 seconds to ensure we get the video
+      const timer2 = setTimeout(() => {
+        refreshVideosList();
+      }, 5000);
+
+      return () => {
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+      };
+    }
+  }, [showSelectedVideoAsPlaceholder, selectedVideo?.uploadUrl, effectiveUser?.id, effectiveUser?.email]);
+
   const handleVideoClick = (video) => {
     setSelectedVideoId(video.id);
+    
     if (onVideoSelect) {
       onVideoSelect(video);
     }
@@ -231,13 +298,13 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
           {effectiveUser?.isLoggedIn && (
             <>
               <div className="flex-1 min-h-0 flex flex-col">
-                {loadingVideos ? (
+                {loadingVideos && !showSelectedVideoAsPlaceholder ? (
                   <div className="flex items-center justify-center py-4">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div>
                   </div>
-                ) : videos.length > 0 ? (
+                ) : renderVideoItems().length > 0 ? (
                   <div className="flex flex-col items-start gap-2 flex-1 min-h-0 overflow-y-auto scrollbar-custom">
-                    {videos.map((video) => (
+                    {renderVideoItems().map((video) => (
                       <span
                         key={video.id}
                         onClick={() => handleVideoClick(video)}
@@ -248,7 +315,14 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
                             : "hover:text-gray-400 hover:bg-gray-100"
                           }`}
                       >
+                        {video.isPlaceholder ? (
+                          <span className="flex items-center gap-2">
+                            <span className="animate-spin rounded-full h-3 w-3 border-b-2 border-purple-600"></span>
                         {video.original_filename || `${window.__t('videoTitleFallback')} ${video.id}`}
+                          </span>
+                        ) : (
+                          video.original_filename || `${window.__t('videoTitleFallback')} ${video.id}`
+                        )}
                       </span>
                     ))}
                   </div>

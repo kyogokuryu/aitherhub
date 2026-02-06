@@ -4,9 +4,13 @@ import MarkdownWithTables from "./markdown/MarkdownWithTables";
 import ChatInput from "./ChatInput";
 import VideoPreviewModal from "./modals/VideoPreviewModal";
 import VideoService from "../base/services/videoService";
+import UploadService from "../base/services/uploadService";
 import "../assets/css/sidebar.css";
 
-export default function VideoDetail({ video }) {
+export default function VideoDetail({ video, onClearUploadPlaceholder }) {
+  // Debug: Log video prop whenever it changes
+  console.log('[VideoDetail] Mounted/Updated, video prop:', video);
+  
   const markdownTableStyles = `
   .markdown table {
     width: 100%;
@@ -97,6 +101,15 @@ export default function VideoDetail({ video }) {
   const reloadTimeoutRef = useRef(null);
   const chatEndRef = useRef(null);
   const statusStreamRef = useRef(null);
+  const isUploadModeRef = useRef(false); // Track upload mode for sync check
+  const uploadStartedRef = useRef(false); // Prevent duplicate upload calls
+  const uploadCompletedRef = useRef(false); // Track upload completion to prevent re-trigger
+  const isUploadFinishedRef = useRef(false); // Track if upload finished (for sync check)
+  const lastVisualProgressRef = useRef(0); 
+
+  // Upload related state
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [isUploading, setIsUploading] = useState(false);
 
   // Smooth progress bar animation - gradual increase every few seconds
   const [smoothProgress, setSmoothProgress] = useState(0);
@@ -170,6 +183,117 @@ export default function VideoDetail({ video }) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  // Upload file to Azure and notify backend
+  const startUpload = async (file, uploadUrl, uploadId, email) => {
+    // Set flag immediately to prevent any duplicate calls
+    uploadStartedRef.current = true;
+
+    setIsUploading(true);
+    setUploadProgress(0);
+
+    try {
+      await UploadService.uploadToAzure(file, uploadUrl, uploadId, (percentage) => {
+        // Map 0-100% upload -> 0-20% progress bar
+        const progress = Math.round(percentage * 0.2);
+        setUploadProgress(progress);
+      });
+
+      // Upload xong: notify backend
+      console.log('[Upload] Calling uploadComplete API...');
+      const result = await UploadService.uploadComplete(email, video.id, file.name, uploadId);
+      console.log('[Upload] uploadComplete result:', result);
+
+      // Reset upload mode flags
+      isUploadModeRef.current = false;
+      uploadStartedRef.current = false;
+      uploadCompletedRef.current = true; // Mark upload as complete BEFORE calling callback
+
+      // Clear sidebar placeholder since upload is complete
+      if (onClearUploadPlaceholder) {
+        onClearUploadPlaceholder();
+      }
+
+      // Set smoothProgress from uploadProgress to continue smoothly (20%)
+      // This ensures progress bar doesn't jump when SSE stream starts
+      setSmoothProgress(uploadProgress);
+
+      setIsUploading(false);
+    } catch (error) {
+      console.error('Upload failed:', error);
+      isUploadModeRef.current = false;
+      uploadStartedRef.current = false;
+      uploadCompletedRef.current = false; // Reset to allow retry
+      setIsUploading(false);
+      // Handle error - co the hien thi error message
+    }
+  };
+
+  // Start SSE stream for video processing status
+  const startVideoProcessing = (initialProgress = 0) => {
+    if (!video?.id) return;
+
+    if (statusStreamRef.current) {
+      statusStreamRef.current.close();
+      statusStreamRef.current = null;
+    }
+
+    statusStreamRef.current = VideoService.streamVideoStatus({
+      videoId: video.id,
+
+      onStatusUpdate: (data) => {
+        setProcessingStatus({
+          status: data.status,
+          progress: data.progress,
+          message: data.message,
+          updatedAt: data.updated_at,
+        });
+
+        // Ensure progress never goes below upload completion point (20%)
+        const minProgress = Math.max(initialProgress, 20);
+        const targetProgress = Math.max(data.progress, minProgress);
+
+        // Bat dau gradual progress increase
+        startGradualProgress(targetProgress);
+        lastStatusChangeRef.current = Date.now();
+      },
+
+      onDone: async () => {
+        // Processing complete - reload full video data de get reports
+        try {
+          const response = await VideoService.getVideoById(video.id);
+          const rr1 = Array.isArray(response.reports_1) ? response.reports_1 : (response.reports_1 ? [response.reports_1] : []);
+          let rr2 = Array.isArray(response.reports_2) ? response.reports_2 : (response.reports_2 ? [response.reports_2] : []);
+          if ((!rr2 || rr2.length === 0) && rr1 && rr1.length > 0) {
+            rr2 = rr1.map((it) => ({
+              phase_index: it.phase_index,
+              time_start: it.time_start,
+              time_end: it.time_end,
+              insight: it.insight ?? it.phase_description ?? "",
+              video_clip_url: it.video_clip_url,
+            }));
+          }
+          setVideoData({
+            id: response.id || video.id,
+            title: response.original_filename || video.original_filename,
+            status: response.status,
+            uploadedAt: response.created_at,
+            reports_1: rr1,
+            reports_2: rr2,
+            report3: Array.isArray(response.report3) ? response.report3 : (response.report3 ? [response.report3] : []),
+          });
+          setProcessingStatus(null);
+        } catch (err) {
+          console.error('Failed to reload video after processing:', err);
+        }
+      },
+
+      onError: (error) => {
+        console.error('Status stream error:', error);
+        setProcessingStatus(null);
+      },
+    });
   };
 
   const handlePhasePreview = async (phase) => {
@@ -255,33 +379,44 @@ export default function VideoDetail({ video }) {
   };
 
   // Helper to calculate progress percentage from status
-  const calculateProgressFromStatus = (status) => {
+  const calculateProgressFromStatus = (status, currentUploadProgress = null) => {
+    // Uu tien upload progress (0-20%)
+    if (currentUploadProgress !== null && currentUploadProgress < 20) {
+      return currentUploadProgress;
+    }
+
+    // Processing steps (20-100%)
     const statusMap = {
-      NEW: 0,
-      uploaded: 0,
-      STEP_0_EXTRACT_FRAMES: 5,
-      STEP_1_DETECT_PHASES: 10,
-      STEP_2_EXTRACT_METRICS: 20,
-      STEP_3_TRANSCRIBE_AUDIO: 30,
-      STEP_4_IMAGE_CAPTION: 40,
-      STEP_5_BUILD_PHASE_UNITS: 50,
-      STEP_6_BUILD_PHASE_DESCRIPTION: 60,
-      STEP_7_GROUPING: 65,
-      STEP_8_UPDATE_BEST_PHASE: 70,
-      STEP_9_BUILD_VIDEO_STRUCTURE_FEATURES: 75,
-      STEP_10_ASSIGN_VIDEO_STRUCTURE_GROUP: 80,
-      STEP_11_UPDATE_VIDEO_STRUCTURE_GROUP_STATS: 85,
-      STEP_12_UPDATE_VIDEO_STRUCTURE_BEST: 90,
-      STEP_13_BUILD_REPORTS: 95,
+      NEW: 20,
+      uploaded: 20,
+      STEP_0_EXTRACT_FRAMES: 25,
+      STEP_1_DETECT_PHASES: 30,
+      STEP_2_EXTRACT_METRICS: 40,
+      STEP_3_TRANSCRIBE_AUDIO: 50,
+      STEP_4_IMAGE_CAPTION: 60,
+      STEP_5_BUILD_PHASE_UNITS: 70,
+      STEP_6_BUILD_PHASE_DESCRIPTION: 75,
+      STEP_7_GROUPING: 80,
+      STEP_8_UPDATE_BEST_PHASE: 85,
+      STEP_9_BUILD_VIDEO_STRUCTURE_FEATURES: 88,
+      STEP_10_ASSIGN_VIDEO_STRUCTURE_GROUP: 90,
+      STEP_11_UPDATE_VIDEO_STRUCTURE_GROUP_STATS: 92,
+      STEP_12_UPDATE_VIDEO_STRUCTURE_BEST: 94,
+      STEP_13_BUILD_REPORTS: 96,
       STEP_14_SPLIT_VIDEO: 98,
       DONE: 100,
       ERROR: -1,
     };
-    return statusMap[status] || 0;
+    return statusMap[status] || 20;
   };
 
   // Helper to get user-friendly status message
-  const getStatusMessage = (status) => {
+  const getStatusMessage = (status, uploadIsUploading = false, uploadProgress = 0) => {
+    // Hien thi upload message khi dang upload
+    if (uploadIsUploading) {
+      return `${window.__t('uploadingMessage') || 'アップロード中...'}: ${uploadProgress}%`;
+    }
+
     const messages = {
       NEW: window.__t('statusNew'),
       uploaded: window.__t('statusUploaded'),
@@ -402,6 +537,11 @@ export default function VideoDetail({ video }) {
         return;
       }
 
+      // Neu co upload info, skip fetch vi dang trong qua trinh upload
+      if (video.uploadFile) {
+        return;
+      }
+
       setLoading(true);
       setError(null);
 
@@ -480,6 +620,49 @@ export default function VideoDetail({ video }) {
     fetchVideoDetails();
   }, [video]);
 
+  // Xu ly upload khi navigate tu MainContent
+  useEffect(() => {
+    console.log('[Upload] useEffect triggered, videoId:', video?.id);
+    console.log('[Upload] video?.uploadFile:', !!video?.uploadFile);
+    console.log('[Upload] video?.uploadUrl:', !!video?.uploadUrl);
+    console.log('[Upload] uploadCompletedRef.current:', uploadCompletedRef.current);
+    console.log('[Upload] isUploadFinishedRef.current:', isUploadFinishedRef.current);
+    console.log('[Upload] !uploadStartedRef.current:', !uploadStartedRef.current);
+    console.log('[Upload] videoData:', !!videoData);
+    console.log('[Upload] processingStatus:', !!processingStatus);
+
+    // Skip if upload already completed
+    if (uploadCompletedRef.current || isUploadFinishedRef.current) {
+      console.log('[Upload] Skipping - upload already completed');
+      return;
+    }
+
+    // Skip if we already have video data (upload was already processed)
+    if (videoData && processingStatus) {
+      console.log('[Upload] Skipping - video already processed');
+      return;
+    }
+
+    // Neu video prop co upload info (tu MainContent navigate)
+    if (video?.uploadFile && video?.uploadUrl && !uploadStartedRef.current) {
+      console.log('[Upload] All conditions passed, starting upload for video:', video.id);
+      // Set upload mode flag synchronously before any other useEffect runs
+      isUploadModeRef.current = true;
+      console.log('[Upload] isUploadModeRef set to true');
+
+      // Bat dau upload (uploadStartedRef will be set INSIDE startUpload)
+      startUpload(video.uploadFile, video.uploadUrl, video.uploadId, video.userEmail);
+    } else {
+      console.log('[Upload] Conditions NOT passed, skipping');
+      if (uploadStartedRef.current) {
+        console.log('[Upload] Skipped because uploadStartedRef.current is true');
+      }
+      if (videoData) {
+        console.log('[Upload] Skipped because videoData already exists');
+      }
+    }
+  }, [video]);
+
   useEffect(() => {
     const onGlobalSubmit = (ev) => {
       try {
@@ -505,6 +688,10 @@ export default function VideoDetail({ video }) {
   }, []);
 
   useEffect(() => {
+    console.log('[VideoDetail] useEffect [video?.id] triggered, videoId:', video?.id, 'uploadCompletedRef:', uploadCompletedRef.current);
+
+    // Only reset state when video ID actually changes (not just when upload completes)
+    // This prevents progress bar from resetting after upload complete
     if (streamCancelRef.current) {
       try {
         if (typeof streamCancelRef.current.cancel === "function") streamCancelRef.current.cancel();
@@ -516,8 +703,22 @@ export default function VideoDetail({ video }) {
     lastSentRef.current = { text: null, t: 0 };
     lastStatusChangeRef.current = Date.now();
 
-    // Reset smooth progress and processing status when video changes
+    // Skip reset if upload đã hoàn thành cho video hiện tại
+    if (uploadCompletedRef.current) {
+      console.log('[VideoDetail] Skipping reset - upload already completed');
+      return;
+    }
+
+    // Skip reset nếu đang trong upload mode
+    if (isUploadModeRef.current || uploadStartedRef.current) {
+      console.log('[VideoDetail] Skipping reset - upload in progress for this video');
+      return;
+    }
+
+    console.log('[VideoDetail] Resetting progress for new video (video id changed)');
+    // Reset progress chỉ khi thực sự chuyển sang video khác
     setSmoothProgress(0);
+    lastVisualProgressRef.current = 0;
     setProcessingStatus(null); // Clear progress bar when switching videos
     if (progressIntervalRef.current) {
       clearInterval(progressIntervalRef.current);
@@ -526,13 +727,22 @@ export default function VideoDetail({ video }) {
   }, [video?.id]);
 
   useEffect(() => {
+    console.log('[ChatHistory] useEffect triggered, video?.id:', video?.id, 'isUploadModeRef:', isUploadModeRef.current);
     let cancelled = false;
     const vid = video?.id || videoData?.id;
     if (!vid) {
       setChatMessages([]);
+      console.log('[ChatHistory] No video id, clearing messages');
       return;
     }
 
+    // Skip loading chat history when we're in upload mode (use ref for sync check)
+    if (isUploadModeRef.current) {
+      console.log('[ChatHistory] Skipping - upload mode detected');
+      return;
+    }
+
+    console.log('[ChatHistory] Loading chat history for vid:', vid);
     (async () => {
       try {
         setChatMessages([]);
@@ -661,40 +871,242 @@ export default function VideoDetail({ video }) {
     }
   }, [videoData?.status]);
 
+  // Define all processing steps in order
+  const processingSteps = [
+    { key: 'STEP_0_EXTRACT_FRAMES', label: window.__t('statusStep0') || 'Extract Frames' },
+    { key: 'STEP_1_DETECT_PHASES', label: window.__t('statusStep1') || 'Detect Phases' },
+    { key: 'STEP_2_EXTRACT_METRICS', label: window.__t('statusStep2') || 'Extract Metrics' },
+    { key: 'STEP_3_TRANSCRIBE_AUDIO', label: window.__t('statusStep3') || 'Transcribe Audio' },
+    { key: 'STEP_4_IMAGE_CAPTION', label: window.__t('statusStep4') || 'Image Caption' },
+    { key: 'STEP_5_BUILD_PHASE_UNITS', label: window.__t('statusStep5') || 'Build Phase Units' },
+    { key: 'STEP_6_BUILD_PHASE_DESCRIPTION', label: window.__t('statusStep6') || 'Build Description' },
+    { key: 'STEP_7_GROUPING', label: window.__t('statusStep7') || 'Grouping' },
+    { key: 'STEP_8_UPDATE_BEST_PHASE', label: window.__t('statusStep8') || 'Update Best Phase' },
+    { key: 'STEP_9_BUILD_VIDEO_STRUCTURE_FEATURES', label: window.__t('statusStep9') || 'Build Features' },
+    { key: 'STEP_10_ASSIGN_VIDEO_STRUCTURE_GROUP', label: window.__t('statusStep10') || 'Assign Group' },
+    { key: 'STEP_11_UPDATE_VIDEO_STRUCTURE_GROUP_STATS', label: window.__t('statusStep11') || 'Update Stats' },
+    { key: 'STEP_12_UPDATE_VIDEO_STRUCTURE_BEST', label: window.__t('statusStep12') || 'Update Best' },
+    { key: 'STEP_13_BUILD_REPORTS', label: window.__t('statusStep13') || 'Build Reports' },
+    { key: 'STEP_14_SPLIT_VIDEO', label: window.__t('statusStep14') || 'Split Video' },
+  ];
+
+  // Get step status: 'completed', 'current', 'pending', or null (for upload phase)
+  const getStepStatus = (stepKey, currentStatus) => {
+    const currentIndex = processingSteps.findIndex(s => s.key === currentStatus);
+    const stepIndex = processingSteps.findIndex(s => s.key === stepKey);
+
+    if (currentStatus === 'ERROR') return 'error';
+    if (stepIndex < currentIndex) return 'completed';
+    if (stepIndex === currentIndex) return 'current';
+    return 'pending';
+  };
+
+  // Render step icon based on status
+  const renderStepIcon = (status) => {
+    if (status === 'completed') {
+      return (
+        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-green-500/20 text-green-400">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+          </svg>
+        </div>
+      );
+    }
+
+    if (status === 'current') {
+      return (
+        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-purple-500/20">
+          <svg className="w-4 h-4 text-purple-400 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+      );
+    }
+
+    if (status === 'error') {
+      return (
+        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-red-500/20 text-red-400">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+          </svg>
+        </div>
+      );
+    }
+
+    // Pending - hollow circle
+    return (
+      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-700/50 border border-gray-600">
+        <div className="w-2 h-2 rounded-full bg-gray-500"></div>
+      </div>
+    );
+  };
+
+  // Get visible steps window (max 5 steps, current step in middle)
+  const getVisibleSteps = (currentStatus) => {
+    const currentIndex = processingSteps.findIndex(s => s.key === currentStatus);
+    const totalSteps = processingSteps.length;
+
+    // Always show 5 steps or less if near boundaries
+    let startIndex = Math.max(0, currentIndex - 2); // Current step in middle (index 2)
+    let endIndex = Math.min(totalSteps, startIndex + 5);
+
+    // Adjust if we're near the end
+    if (endIndex - startIndex < 5) {
+      startIndex = Math.max(0, endIndex - 5);
+    }
+
+    return {
+      steps: processingSteps.slice(startIndex, endIndex),
+      startIndex,
+      isFirst: startIndex === 0,
+      isLast: endIndex === totalSteps,
+    };
+  };
+
   // Render processing status UI
   const renderProcessingStatus = () => {
+    if (isUploading) {
+      return (
+        <div className="mt-4 p-4 rounded-lg bg-white/5">
+          {/* Upload message */}
+          <div className="flex items-center justify-between mb-4">
+            <span className="text-sm font-semibold">
+              {getStatusMessage(null, true, uploadProgress)}
+            </span>
+            <span className="text-sm text-gray-400">
+              {uploadProgress}%
+            </span>
+          </div>
+
+          {/* Upload step */}
+          <div className="mb-4 space-y-2">
+            <div className="flex items-center gap-3">
+              {renderStepIcon('current')}
+              <span className="text-sm text-purple-300 font-medium">
+                {window.__t('uploadProgressMessage') || 'ファイルをアップロードしています...'}
+              </span>
+            </div>
+          </div>
+
+          {/* Progress bar */}
+          <div className="w-full bg-gray-700 rounded-full h-2">
+            <div
+              className="bg-gradient-to-r from-blue-500 to-cyan-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${uploadProgress}%` }}
+            />
+          </div>
+        </div>
+      );
+    }
+
     if (!processingStatus) return null;
 
-    const { status, progress, message } = processingStatus;
+    const { status, message } = processingStatus;
     const isError = status === 'ERROR';
 
+    const rawProgress = Number.isFinite(smoothProgress) ? smoothProgress : 0;
+    const baseUploadProgress = Number.isFinite(uploadProgress) ? uploadProgress : 0;
+    const effectiveProgress = Math.max(
+      lastVisualProgressRef.current || 0,
+      rawProgress,
+      baseUploadProgress
+    );
+    lastVisualProgressRef.current = effectiveProgress;
+
+    // Get visible steps window (max 5 visible, current step in middle)
+    const { steps: visibleSteps, isFirst, isLast } = getVisibleSteps(status);
+
     return (
-      <div className={`mt-4 p-4 rounded-lg ${isError ? 'bg-red-500/10 border border-red-500/50' : 'bg-white/5'}`}>
-        <div className="flex items-center justify-between mb-2">
+      <div className={`mt-4 p-6 rounded-lg ${isError ? 'bg-red-500/10 border border-red-500/50' : 'bg-white/5 border border-white/10'}`}>
+        <div className="flex flex-col gap-2 text-center">
+          <div className="inline-flex self-start items-center mx-auto rounded-[50px] h-[41px] px-4 border border-white/10">
+            <div className="text-[16px] font-bold whitespace-nowrap text-white bg-clip-text">
+              {videoData?.title || video.original_filename}
+            </div>
+          </div>
+        </div>
+        
+        {/* Steps indicator - max 5 visible, current in middle */}
+        <div className="mb-4 space-y-2">
+          {/* Show ellipsis if not at start */}
+          {!isFirst && (
+            <div className="flex items-center gap-3 text-gray-500">
+              <div className="flex items-center justify-center w-6">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                  <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <span className="text-xs text-gray-500">...</span>
+            </div>
+          )}
+
+          {/* Visible steps */}
+          {visibleSteps.map((step) => {
+            const stepStatus = getStepStatus(step.key, status);
+            const isActive = stepStatus === 'current';
+            const isCompleted = stepStatus === 'completed';
+
+            return (
+              <div
+                key={step.key}
+                className={`flex items-center gap-3 transition-all duration-300 ${
+                  isActive ? 'opacity-100' : isCompleted ? 'opacity-60' : 'opacity-40'
+                }`}
+              >
+                {renderStepIcon(stepStatus)}
+                <span className={`text-sm ${
+                  isActive ? 'text-white font-medium' :
+                  isCompleted ? 'text-gray-300' :
+                  'text-gray-400'
+                }`}>
+                  {step.label}
+                </span>
+              </div>
+            );
+          })}
+
+          {/* Show ellipsis if not at end */}
+          {!isLast && (
+            <div className="flex items-center gap-3 text-gray-500">
+              <div className="flex items-center justify-center w-6">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                  <path fillRule="evenodd" d="M14.77 12.79a.75.75 0 01-1.06-.02L10 8.832l-3.71 3.938a.75.75 0 11-1.08-1.04l4.25-4.5a.75.75 0 011.08 0l4.25 4.5a.75.75 0 01-.02 1.06z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <span className="text-xs text-gray-500">...</span>
+            </div>
+          )}
+        </div>
+
+        {/* Progress bar */}
+        {!isError && effectiveProgress >= 0 && (
+          <>
+            <div className="w-full bg-gray-700 rounded-full h-2">
+              <div
+                className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
+                style={{ width: `${effectiveProgress}%` }}
+              />
+            </div>
+            {/* Current status message */}
+        <div className="flex items-center justify-between mb-4 mt-1">
           <span className="text-sm font-semibold">
             {message}
           </span>
           {!isError && (
             <span className="text-sm text-gray-400">
-              {Math.round(smoothProgress)}%
+              {Math.round(effectiveProgress)}%
             </span>
           )}
         </div>
 
-        {!isError && smoothProgress >= 0 && (
-          <>
-            <div className="w-full bg-gray-700 rounded-full h-2">
-              <div
-                className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
-                style={{ width: `${smoothProgress}%` }}
-              />
-            </div>
-            <p className="text-xs text-gray-400 mt-2">
+            <p className="text-sm text-gray-400 mt-5 text-center">
               {window.__t('progressCompleteMessage')}
             </p>
           </>
         )}
 
+        {/* Error message */}
         {isError && (
           <p className="text-sm text-red-400 mt-2">
             {window.__t('errorAnalysisMessage')}
@@ -740,17 +1152,10 @@ export default function VideoDetail({ video }) {
         ))}
       </h4>
       {/* Video Header */}
-      <div className="flex flex-col overflow-hidden md:overflow-auto lg:ml-[65px] h-full">
-        <div className="flex flex-col gap-2">
-          <div className="inline-flex self-start items-center bg-white rounded-[50px] h-[41px] px-4">
-            <div className="text-[14px] font-bold whitespace-nowrap bg-[linear-gradient(180deg,rgba(69,0,255,1),rgba(155,0,255,1))] text-transparent bg-clip-text">
-              {videoData?.title || video.original_filename}
-            </div>
-          </div>
-        </div>
+      <div className="flex flex-col overflow-hidden md:overflow-auto h-full">
 
         {/* SCROLL AREA */}
-        <div className="flex-1 overflow-y-auto scrollbar-custom text-left md:mb-0">
+        <div className="flex-1 overflow-y-auto text-left md:mb-0">
           {/* Show processing status when video is being processed */}
           {renderProcessingStatus()}
 
@@ -937,8 +1342,7 @@ export default function VideoDetail({ video }) {
                 )}
               </div>
             ) : (
-              <div className="text-[18px] leading-[35px] tracking-[0] text-gray-500">
-                {window.__t('noReports')}
+              <div className="">
               </div>
             )}
             {chatMessages && chatMessages.length > 0 && (

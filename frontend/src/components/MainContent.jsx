@@ -248,31 +248,42 @@ export default function MainContent({
     setProgress(0);
 
     try {
-      const video_id = await UploadService.uploadFile(
-        selectedFile,
+      // Chỉ lấy video_id và upload_url, upload sẽ được thực hiện trong VideoDetail
+      const { video_id, upload_id, upload_url } = await UploadService.generateUploadUrl(
         user.email,
-        (percentage) => {
-          setProgress(percentage);
-        }
+        selectedFile.name
       );
 
-      setMessageType("success");
-      toast.success(window.__t('uploadSuccessMessage'));
-      setSelectedFile(null);
-      setResumeUploadId(null);
+      // Navigate sang VideoDetail với file và upload info
+      console.log('[MainContent] handleUpload - calling onVideoSelect with:', {
+        id: video_id,
+        original_filename: selectedFile?.name,
+        uploadFile: selectedFile?.name,
+        uploadId: upload_id,
+        uploadUrl: upload_url ? '[URL]' : undefined,
+        userEmail: user.email
+      });
 
-      // Navigate to video detail after successful upload
-      if (onUploadSuccess) {
-        onUploadSuccess();
-      }
+      // NOTE: Không gọi onUploadSuccess() ở đây để tránh refresh sidebar gây "reload effect"
+      // Refresh sidebar sẽ được xử lý bởi onClearUploadPlaceholder trong VideoDetail sau khi upload hoàn tất
+      
       if (onVideoSelect) {
-        onVideoSelect({ id: video_id });
+        onVideoSelect({
+          id: video_id,
+          original_filename: selectedFile?.name,
+          uploadFile: selectedFile,
+          uploadId: upload_id,
+          uploadUrl: upload_url,
+          userEmail: user.email
+        });
       }
     } catch (error) {
       const errorMsg = error?.message || window.__t('uploadFailedMessage');
       toast.error(errorMsg);
     } finally {
       setUploading(false);
+      setSelectedFile(null);
+      setResumeUploadId(null);
     }
   };
 

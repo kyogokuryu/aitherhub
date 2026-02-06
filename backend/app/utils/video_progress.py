@@ -2,10 +2,16 @@
 Video processing progress calculation utilities.
 """
 
+# Upload progress contribution (0-20%)
+UPLOAD_PROGRESS = 20
 
 def calculate_progress(status: str) -> int:
     """
     Calculate progress percentage based on current video processing status.
+
+    Progress mapping accounts for:
+    - Upload phase: 0-20%
+    - Processing steps: 20-100%
 
     Args:
         status: Current video status (e.g., 'STEP_0_EXTRACT_FRAMES', 'DONE', etc.)
@@ -15,7 +21,7 @@ def calculate_progress(status: str) -> int:
 
     Examples:
         >>> calculate_progress('uploaded')
-        0
+        20
         >>> calculate_progress('STEP_5_BUILD_PHASE_UNITS')
         60
         >>> calculate_progress('DONE')
@@ -25,26 +31,26 @@ def calculate_progress(status: str) -> int:
     """
     status_map = {
         "NEW": 0,
-        "uploaded": 0,
-        "STEP_0_EXTRACT_FRAMES": 5,
-        "STEP_1_DETECT_PHASES": 10,
-        "STEP_2_EXTRACT_METRICS": 20,
-        "STEP_3_TRANSCRIBE_AUDIO": 30,
-        "STEP_4_IMAGE_CAPTION": 40,
-        "STEP_5_BUILD_PHASE_UNITS": 50,
-        "STEP_6_BUILD_PHASE_DESCRIPTION": 60,
-        "STEP_7_GROUPING": 65,
-        "STEP_8_UPDATE_BEST_PHASE": 70,
-        "STEP_9_BUILD_VIDEO_STRUCTURE_FEATURES": 75,
-        "STEP_10_ASSIGN_VIDEO_STRUCTURE_GROUP": 80,
-        "STEP_11_UPDATE_VIDEO_STRUCTURE_GROUP_STATS": 85,
-        "STEP_12_UPDATE_VIDEO_STRUCTURE_BEST": 90,
-        "STEP_13_BUILD_REPORTS": 95,
-        "STEP_14_SPLIT_VIDEO": 98,
+        "uploaded": UPLOAD_PROGRESS,  # Upload complete at 20%
+        "STEP_0_EXTRACT_FRAMES": 25,
+        "STEP_1_DETECT_PHASES": 30,
+        "STEP_2_EXTRACT_METRICS": 40,
+        "STEP_3_TRANSCRIBE_AUDIO": 50,
+        "STEP_4_IMAGE_CAPTION": 55,
+        "STEP_5_BUILD_PHASE_UNITS": 65,
+        "STEP_6_BUILD_PHASE_DESCRIPTION": 70,
+        "STEP_7_GROUPING": 75,
+        "STEP_8_UPDATE_BEST_PHASE": 80,
+        "STEP_9_BUILD_VIDEO_STRUCTURE_FEATURES": 85,
+        "STEP_10_ASSIGN_VIDEO_STRUCTURE_GROUP": 88,
+        "STEP_11_UPDATE_VIDEO_STRUCTURE_GROUP_STATS": 91,
+        "STEP_12_UPDATE_VIDEO_STRUCTURE_BEST": 94,
+        "STEP_13_BUILD_REPORTS": 97,
+        "STEP_14_SPLIT_VIDEO": 99,
         "DONE": 100,
         "ERROR": -1,
     }
-    return status_map.get(status, 0)
+    return status_map.get(status, UPLOAD_PROGRESS)
 
 
 def get_status_message(status: str) -> str:
