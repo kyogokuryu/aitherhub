@@ -206,6 +206,34 @@ def cut_segment(input_path: str, out_path: str, start_sec: float, end_sec: float
 
     tmp_path = out_path + ".tmp.mp4"
 
+    # Get input file size and calculate expected output size
+    try:
+        input_size_bytes = os.path.getsize(input_path)
+        input_size_mb = input_size_bytes / (1024 * 1024)
+        
+        # Get video duration using ffprobe if available, otherwise estimate
+        try:
+            probe_cmd = [
+                "ffprobe", "-v", "error",
+                "-show_entries", "format=duration",
+                "-of", "default=noprint_wrappers=1:nokey=1",
+                input_path
+            ]
+            probe_result = subprocess.run(probe_cmd, capture_output=True, text=True, timeout=30)
+            total_duration = float(probe_result.stdout.strip())
+        except:
+            # Fallback: estimate from end_sec (assumes end_sec is close to total duration)
+            total_duration = max(end_sec, duration * 10)  # Conservative estimate
+        
+        # Calculate expected segment size
+        expected_size_mb = (duration / total_duration) * input_size_mb
+        logger.info("Input: %.1f MB, duration: %.1fs, segment duration: %.1fs, expected size: %.1f MB",
+                   input_size_mb, total_duration, duration, expected_size_mb)
+    except Exception as e:
+        logger.warning("Failed to calculate expected size: %s, will skip size check", e)
+        expected_size_mb = None
+        input_size_mb = None
+
     # Try fast stream-copy (-ss before -i)
     fast_cmd = [
         "ffmpeg",
@@ -214,48 +242,104 @@ def cut_segment(input_path: str, out_path: str, start_sec: float, end_sec: float
         "-i", input_path,
         "-t", str(duration),
         "-c", "copy",
+        "-avoid_negative_ts", "make_zero",
         "-movflags", "+faststart",
         tmp_path,
     ]
 
-    # Fallback: place -ss after -i (slower but sometimes more compatible)
-    slow_cmd = [
+    # Re-encode command (fallback when copy produces bloat)
+    reencode_cmd = [
         "ffmpeg",
         "-y",
-        "-i", input_path,
         "-ss", str(start_sec),
+        "-i", input_path,
         "-t", str(duration),
-        "-c", "copy",
+        "-c:v", "libx264",
+        "-crf", str(crf),
+        "-preset", preset,
+        "-c:a", "aac",
+        "-b:a", "128k",
+        "-avoid_negative_ts", "make_zero",
         "-movflags", "+faststart",
         tmp_path,
     ]
 
-    # No per-invocation ffmpeg log files; rely on logger
-
+    # Try fast copy first
+    copy_failed = False
     try:
         proc = subprocess.run(fast_cmd, check=True, capture_output=True, text=True)
-        os.replace(tmp_path, out_path)
-        return True
+        
+        # Check if output size is reasonable
+        if os.path.exists(tmp_path) and expected_size_mb is not None:
+            output_size_mb = os.path.getsize(tmp_path) / (1024 * 1024)
+            size_ratio = output_size_mb / expected_size_mb if expected_size_mb > 0 else 0
+            
+            logger.info("Copy result: %.1f MB (expected %.1f MB, ratio: %.1fx)",
+                       output_size_mb, expected_size_mb, size_ratio)
+            
+            # If output is more than 3x expected size, it's keyframe bloat - delete and re-encode
+            if size_ratio > 3.0:
+                logger.warning("Keyframe bloat detected (%.1fMB > 3x expected %.1fMB). Deleting and re-encoding...",
+                             output_size_mb, expected_size_mb)
+                os.remove(tmp_path)
+                copy_failed = True
+            else:
+                os.replace(tmp_path, out_path)
+                return True
+        elif os.path.exists(tmp_path):
+            # No size check possible, accept the copy result
+            os.replace(tmp_path, out_path)
+            return True
+        else:
+            logger.error("ffmpeg copy succeeded but output file not found")
+            return False
+            
     except FileNotFoundError:
-        logger.exception("ffmpeg not found when running: %s", ' '.join(fast_cmd))
+        logger.exception("ffmpeg not found")
         return False
     except subprocess.CalledProcessError as e:
-        logger.debug("ffmpeg fast copy stdout: %s", getattr(e, 'stdout', ''))
-        logger.debug("ffmpeg fast copy stderr: %s", getattr(e, 'stderr', ''))
-
-    try:
-        proc2 = subprocess.run(slow_cmd, check=True, capture_output=True, text=True)
-        os.replace(tmp_path, out_path)
-        return True
-    except subprocess.CalledProcessError as e2:
-        logger.debug("ffmpeg slow copy stdout: %s", getattr(e2, 'stdout', ''))
-        logger.debug("ffmpeg slow copy stderr: %s", getattr(e2, 'stderr', ''))
+        logger.debug("ffmpeg copy failed: %s", getattr(e, 'stderr', ''))
+        copy_failed = True
         if os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
-            except Exception:
+            except:
                 pass
-        return False
+
+    # If copy failed or produced bloat, re-encode (ONCE only - no retry loop)
+    if copy_failed or not os.path.exists(out_path):
+        logger.info("Re-encoding segment with CRF=%s preset=%s", crf, preset)
+        try:
+            proc2 = subprocess.run(reencode_cmd, check=True, capture_output=True, text=True)
+            
+            if os.path.exists(tmp_path):
+                output_size_mb = os.path.getsize(tmp_path) / (1024 * 1024)
+                logger.info("Re-encode result: %.1f MB", output_size_mb)
+                
+                # Final safety check: warn if re-encoded file is still unusually large
+                # (but accept it anyway - re-encode should never bloat like copy does)
+                if expected_size_mb is not None and output_size_mb > expected_size_mb * 5:
+                    logger.warning("Re-encoded file (%.1f MB) is still larger than 5x expected (%.1f MB). "
+                                 "This is unusual but may be due to high-quality source. Accepting anyway.",
+                                 output_size_mb, expected_size_mb)
+                
+                os.replace(tmp_path, out_path)
+                return True
+            else:
+                logger.error("ffmpeg re-encode succeeded but output file not found")
+                return False
+                
+        except subprocess.CalledProcessError as e2:
+            logger.error("ffmpeg re-encode failed")
+            logger.debug("ffmpeg re-encode stderr: %s", getattr(e2, 'stderr', ''))
+            if os.path.exists(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except:
+                    pass
+            return False
+    
+    return False
 
 
 def split_video_into_segments(video_id: str, video_url: str, video_path: str | None = None) -> Optional[list]:
