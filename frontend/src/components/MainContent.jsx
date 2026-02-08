@@ -166,15 +166,15 @@ export default function MainContent({
       if (file.size !== metadata.fileSize) {
         throw new Error(`選択したファイルが一致しません。再度ファイルを選択してください。`);
       }
-      
+
       const blockIds = metadata.blockIds || [];
       const uploadedBlockIds = metadata.uploadedBlocks || [];
-      const maxUploadedIndex = uploadedBlockIds.length > 0 
+      const maxUploadedIndex = uploadedBlockIds.length > 0
         ? Math.max(...uploadedBlockIds.map(id => {
-            // Decode base64 block ID to get original index
-            const decoded = atob(id);
-            return parseInt(decoded, 10);
-          }))
+          // Decode base64 block ID to get original index
+          const decoded = atob(id);
+          return parseInt(decoded, 10);
+        }))
         : -1;
       const startFrom = maxUploadedIndex + 1;
 
@@ -344,165 +344,176 @@ export default function MainContent({
       <Body>
         {children ?? (
           <>
-            <div className="w-full">
-              <h4 className="w-full text-[26px] leading-[40px] font-semibold font-cabin text-center">
-                {window.__t('header').split('\n').map((line, idx, arr) => (
-                  <span key={idx}>
-                    {line}
-                    {idx < arr.length - 1 && <br className="block md:hidden" />}
-                  </span>
-                ))}
-              </h4>
-            </div>
-            <div className="w-full mt-[70px] md:mt-[115px] [@media(max-height:650px)]:mt-[20px]">
-              <h4 className="w-full mb-[22px] text-[28px] leading-[40px] font-semibold font-cabin text-center">
-                {window.__t('uploadText').split('\n').map((line, idx, arr) => (
-                  <span key={idx}>
-                    {line}
-                    {idx < arr.length - 1 && <br className="block md:hidden" />}
-                  </span>
-                ))}
-              </h4>
-              <div
-                className="w-[300px] h-[250px] mx-auto md:w-[400px] md:h-[300px] border-5 border-gray-300 rounded-[20px] flex flex-col items-center justify-center text-center gap-4"
-                onDragOver={handleDragOver}
-                onDrop={handleDrop}
-              >
-                {uploading ? (
-                  <>
-                    <div className="w-full px-4">
-                      <div className="w-full bg-gray-200 rounded-full h-2">
-                        <div
-                          className="bg-purple-600 h-2 rounded-full transition-all"
-                          style={{ width: `${progress}%` }}
-                        ></div>
-                      </div>
-                      <p className="text-sm font-medium mt-2">{progress}%</p>
-                    </div>
-                    <button
-                      onClick={handleCancel}
-                      className="w-[143px] h-[41px] bg-white text-gray-600 border border-gray-300 rounded-[30px] text-sm"
-                    >
-                      {window.__t('cancelButton')}
-                    </button>
-                  </>
-                ) : selectedFile ? (
-                  <>
-                    <div className="text-4xl">🎬</div>
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {selectedFile.name}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleUpload}
-                        disabled={uploading}
-                        className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-[30px] leading-[28px] font-semibold"
-                      >
-                        {window.__t('uploadButton')}
-                      </button>
-                      <button
-                        onClick={handleCancel}
-                        className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-[30px] text-sm"
-                      >
-                        {window.__t('cancelButton')}
-                      </button>
-                    </div>
-                  </>
-                ) : resumeUploadId ? (
-                  <>
-                    <div className="text-4xl">⏸️</div>
-                    <div>
-                      <p className="text-sm font-semibold">
-                        {window.__t('resumeUploadTitle') || 'Resumable Upload Found'}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {window.__t('resumeUploadDesc') || 'You have an incomplete upload. Continue uploading?'}
-                      </p>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handleResumeUpload}
-                        disabled={uploading || processingResume}
-                        className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-[30px] leading-[28px] font-semibold"
-                      >
-                        {window.__t('resumeButton') || 'Resume'}
-                      </button>
-                      <button
-                        onClick={handleSkipResume}
-                        disabled={uploading || processingResume}
-                        className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-[30px] text-sm"
-                      >
-                        {window.__t('skipButton') || 'Skip'}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <img
-                      src={uploadIcon}
-                      alt="upload"
-                      className="w-[135px] h-[135px]"
-                    />
-                    <h5 className="hidden md:inline text-[20px] leading-[35px] font-semibold font-cabin text-center h-[35px]">
-                      {window.__t('dragDropText')}
-                    </h5>
-                    <label
-                      className="
+            <div className="w-full flex flex-col items-center justify-center">
+              <div className="w-full">
+                <h4 className="w-full text-center">
+                  {window.__t('header').split('\n').map((line, idx, arr) => (
+                    <span key={idx} className="text-white/90 italic text-lg">
+                      {line}
+                      {idx < arr.length - 1 && <br className="block md:hidden" />}
+                    </span>
+                  ))}
+                </h4>
+              </div>
+              <div className="w-full mt-[20px] [@media(max-height:650px)]:mt-[20px]">
+                <h4 className="w-full mb-[22px] text-center">
+                  {window.__t('uploadText').split('\n').map((line, idx, arr) => (
+                    <span key={idx} className="text-white text-2xl !font-bold font-cabin">
+                      {line}
+                      {idx < arr.length - 1 && <br className="block md:hidden" />}
+                    </span>
+                  ))}
+                </h4>
+                <div className="w-full max-w-md mx-auto">
+                  <div
+                    className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm hover:border-white/50 hover:bg-white/10"
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                  >
+                    {uploading ? (
+                      <>
+                        <div className="flex flex-col items-center text-center space-y-6">
+                          <div className="w-full px-4">
+                            <div className="w-full bg-gray-200 rounded-full h-2">
+                              <div
+                                className="bg-purple-600 h-2 rounded-full transition-all"
+                                style={{ width: `${progress}%` }}
+                              ></div>
+                            </div>
+                            <p className="text-sm font-medium mt-2">{progress}%</p>
+                          </div>
+                          <button
+                            onClick={handleCancel}
+                            className="w-[143px] h-[41px] bg-white text-gray-600 border border-gray-300 rounded-md text-sm hover:bg-gray-100"
+                          >
+                            {window.__t('cancelButton')}
+                          </button>
+                        </div>
+                      </>
+                    ) : selectedFile ? (
+                      <>
+                        <div className="flex flex-col items-center text-center space-y-6">
+                          <div className="text-4xl">🎬</div>
+                          <div>
+                            <p className="text-sm font-semibold">
+                              {selectedFile.name}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleUpload}
+                              disabled={uploading}
+                              className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-md leading-[28px] cursor-pointer hover:bg-gray-100"
+                            >
+                              {window.__t('uploadButton')}
+                            </button>
+                            <button
+                              onClick={handleCancel}
+                              className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-md text-sm cursor-pointer hover:bg-gray-100"
+                            >
+                              {window.__t('cancelButton')}
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    ) : resumeUploadId ? (
+                      <>
+                        <div className="flex flex-col items-center text-center space-y-6">
+                          <div className="text-4xl">⏸️</div>
+                          <div>
+                            <p className="text-sm font-semibold">
+                              {window.__t('resumeUploadTitle') || 'Resumable Upload Found'}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {window.__t('resumeUploadDesc') || 'You have an incomplete upload. Continue uploading?'}
+                            </p>
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              onClick={handleResumeUpload}
+                              disabled={uploading || processingResume}
+                              className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-md leading-[28px] hover:bg-gray-100"
+                            >
+                              {window.__t('resumeButton') || 'Resume'}
+                            </button>
+                            <button
+                              onClick={handleSkipResume}
+                              disabled={uploading || processingResume}
+                              className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-md text-sm hover:bg-gray-100"
+                            >
+                              {window.__t('skipButton') || 'Skip'}
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <>
+                        <div className="flex flex-col items-center text-center space-y-6">
+                          <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-lg">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5e29ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-upload-icon lucide-upload w-8 h-8 text-primary"><path d="M12 3v12" /><path d="m17 8-5-5-5 5" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></svg>
+                          </div>
+                          <h5 className="hidden md:inline text-white text-lg font-cabin text-center">
+                            {window.__t('dragDropText')}
+                          </h5>
+                          <label
+                            className="
                         w-[143px] h-[41px]
                         flex items-center justify-center
                         bg-white text-[#7D01FF]
                         border border-[#7D01FF]
-                        rounded-[30px]
+                        rounded-md
                         text-[14px] leading-[28px]
-                        font-semibold
+                        font-extralight
                         cursor-pointer
                         transition-transform duration-150 ease-out
                         active:scale-[0.96]
                         select-none
+                        hover:bg-gray-100
                       "
-                      onMouseDown={(e) => {
-                        if (!isLoggedIn || checkingResume) {
-                          e.preventDefault();
-                          if (!isLoggedIn) setShowLoginModal(true);
-                        }
-                      }}
-                    >
-                      {window.__t('selectFileText')}
-                      <input
-                        type="file"
-                        accept="video/*"
-                        disabled={!isLoggedIn || checkingResume}
-                        onMouseDown={(e) => {
-                          if (!isLoggedIn || checkingResume) {
-                            e.preventDefault();
-                          }
-                        }}
-                        onClick={(e) => {
-                          if (!isLoggedIn || checkingResume) {
-                            e.preventDefault();
-                          }
-                        }}
-                        onChange={handleFileSelect}
-                        className="hidden"
-                      />
-                    </label>
-                  </>
-                )}
-                {message && (
-                  <p
-                    className={`text-xs text-center ${messageType === "success"
-                      ? "text-green-600"
-                      : "text-red-600"
-                      }`}
-                  >
-                    {message}
-                  </p>
-                )}
+                            onMouseDown={(e) => {
+                              if (!isLoggedIn || checkingResume) {
+                                e.preventDefault();
+                                if (!isLoggedIn) setShowLoginModal(true);
+                              }
+                            }}
+                          >
+                            {window.__t('selectFileText')}
+                            <input
+                              type="file"
+                              accept="video/*"
+                              disabled={!isLoggedIn || checkingResume}
+                              onMouseDown={(e) => {
+                                if (!isLoggedIn || checkingResume) {
+                                  e.preventDefault();
+                                }
+                              }}
+                              onClick={(e) => {
+                                if (!isLoggedIn || checkingResume) {
+                                  e.preventDefault();
+                                }
+                              }}
+                              onChange={handleFileSelect}
+                              className="hidden"
+                            />
+                          </label>
+                        </div>
+                      </>
+                    )}
+                    {message && (
+                      <p
+                        className={`text-xs text-center ${messageType === "success"
+                          ? "text-green-600"
+                          : "text-red-600"
+                          }`}
+                      >
+                        {message}
+                      </p>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </>

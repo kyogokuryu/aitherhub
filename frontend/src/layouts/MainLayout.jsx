@@ -111,15 +111,15 @@ export default function MainLayout() {
     <div className="min-h-screen bg-gray-100 flex justify-center">
       <div className="w-full flex">
 
-        <aside className="hidden xl:block w-1/5 bg-white text-black">
+        <aside className="hidden xl:block w-1/5 max-w-[350px] bg-white text-black">
           <Sidebar {...sidebarProps} />
         </aside>
-        
+
         <div className="xl:hidden">
           <Sidebar {...sidebarProps} />
         </div>
-        
-        <main className="w-full md:w-4/5 bg-[linear-gradient(180deg,rgba(69,0,255,1),rgba(155,0,255,1))]
+
+        <main className="w-full md:flex-1 bg-[linear-gradient(180deg,rgba(69,0,255,1),rgba(155,0,255,1))]
  text-white">
           <MainContent {...mainContentProps}>
             {selectedVideo && <VideoDetail video={selectedVideo} onClearUploadPlaceholder={handleClearUploadPlaceholder} />}
