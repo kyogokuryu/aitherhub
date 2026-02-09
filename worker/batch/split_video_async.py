@@ -50,16 +50,16 @@ FFMPEG = resolve_bin(
     linux_fallback="/usr/bin/ffmpeg",
 )
 
-FFPROBE = resolve_bin(
-    "ffprobe",
-    win_fallback=r"C:\ffmpeg\bin\ffprobe.exe",
-    linux_fallback="/usr/bin/ffprobe",
-)
+# FFPROBE = resolve_bin(
+#     "ffprobe",
+#     win_fallback=r"C:\ffmpeg\bin\ffprobe.exe",
+#     linux_fallback="/usr/bin/ffprobe",
+# )
 
 if not FFMPEG:
     raise RuntimeError("ffmpeg not found")
-if not FFPROBE:
-    raise RuntimeError("ffprobe not found")
+# if not FFPROBE:
+#     raise RuntimeError("ffprobe not found")
 
 # =====================
 # PATHS
