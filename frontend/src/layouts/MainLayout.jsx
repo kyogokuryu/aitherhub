@@ -1,6 +1,5 @@
 import Sidebar from "../components/Sidebar";
 import MainContent from '../components/MainContent';
-import VideoDetail from '../components/VideoDetail';
 import { useState, useCallback, useMemo, useEffect } from "react";
 
 const getUserFromStorage = () => {
@@ -14,7 +13,7 @@ const getUserFromStorage = () => {
 
 export default function MainLayout() {
   const [openSidebar, setOpenSidebar] = useState(false);
-  const [selectedVideo, setSelectedVideo] = useState(null);
+  const [selectedVideoId, setSelectedVideoId] = useState(null);
   const [user, setUser] = useState(getUserFromStorage);
   const [refreshKey, setRefreshKey] = useState(0);
   useEffect(() => {
@@ -44,14 +43,16 @@ export default function MainLayout() {
       };
     }
   }, [openSidebar]);
+
   const handleVideoSelect = useCallback((video) => {
-    setSelectedVideo(video);
+    setSelectedVideoId(video?.id || null);
+    setOpenSidebar(false);
   }, []);
 
   const handleUserChange = useCallback((newUser) => {
     setUser(newUser);
     if (!newUser?.isLoggedIn) {
-      setSelectedVideo(null);
+      setSelectedVideoId(null);
     }
   }, []);
 
@@ -64,7 +65,7 @@ export default function MainLayout() {
   }, []);
 
   const handleNewAnalysis = useCallback(() => {
-    setSelectedVideo(null);
+    setSelectedVideoId(null);
     setOpenSidebar(false);
   }, []);
 
@@ -79,16 +80,16 @@ export default function MainLayout() {
     onVideoSelect: handleVideoSelect,
     onNewAnalysis: handleNewAnalysis,
     refreshKey,
-    selectedVideo,
-  }), [openSidebar, handleCloseSidebar, user, handleVideoSelect, handleNewAnalysis, refreshKey, selectedVideo]);
+    selectedVideo: selectedVideoId ? { id: selectedVideoId } : null,
+  }), [openSidebar, handleCloseSidebar, user, handleVideoSelect, handleNewAnalysis, refreshKey, selectedVideoId]);
 
   const mainContentProps = useMemo(() => ({
     onOpenSidebar: handleOpenSidebar,
     user,
     setUser: handleUserChange,
     onUploadSuccess: handleUploadSuccess,
-    onVideoSelect: handleVideoSelect,
-  }), [handleOpenSidebar, user, handleUserChange, handleUploadSuccess, handleVideoSelect]);
+    selectedVideoId,
+  }), [handleOpenSidebar, user, handleUserChange, handleUploadSuccess, selectedVideoId]);
 
   return (
     <div className="min-h-screen bg-gray-100 flex justify-center">
@@ -104,9 +105,7 @@ export default function MainLayout() {
 
         <main className="w-full md:flex-1 bg-[linear-gradient(180deg,rgba(69,0,255,1),rgba(155,0,255,1))]
  text-white">
-          <MainContent {...mainContentProps}>
-            {selectedVideo && <VideoDetail video={selectedVideo} />}
-          </MainContent>
+          <MainContent {...mainContentProps} />
         </main>
       </div>
     </div>

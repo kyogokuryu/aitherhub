@@ -2,8 +2,11 @@ import { Header, Body, Footer } from "./main";
 import uploadIcon from "../assets/upload.png";
 import { useState, useEffect, useRef } from "react";
 import UploadService from "../base/services/uploadService";
+import VideoService from "../base/services/videoService";
 import { toast } from "react-toastify";
 import LoginModal from "./modals/LoginModal";
+import ProcessingSteps from "./ProcessingSteps";
+import VideoDetail from "./VideoDetail";
 
 export default function MainContent({
   children,
@@ -11,7 +14,7 @@ export default function MainContent({
   user,
   setUser,
   onUploadSuccess,
-  onVideoSelect,
+  selectedVideoId,
 }) {
   const isLoggedIn = Boolean(
     user &&
@@ -28,6 +31,8 @@ export default function MainContent({
   const [processingResume, setProcessingResume] = useState(false);
   const [checkingResume, setCheckingResume] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [uploadedVideoId, setUploadedVideoId] = useState(null);
+  const [videoData, setVideoData] = useState(null);
   const [message, setMessage] = useState("");
   const [messageType, setMessageType] = useState("");
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -48,6 +53,8 @@ export default function MainContent({
       setSelectedFile(null);
       setUploading(false);
       setProgress(0);
+      setUploadedVideoId(null);
+      setVideoData(null);
       setMessage("");
       setMessageType("");
     }
@@ -101,6 +108,8 @@ export default function MainContent({
 
     setSelectedFile(file);
     setResumeUploadId(null);
+    setUploadedVideoId(null);
+    setVideoData(null);
     setMessage("");
     setProgress(0);
   };
@@ -211,11 +220,12 @@ export default function MainContent({
       setSelectedFile(null);
       setResumeUploadId(null);
 
+      // Set uploaded video ID to start processing tracking
+      setUploadedVideoId(video_id);
+
+      // Trigger refresh sidebar
       if (onUploadSuccess) {
         onUploadSuccess();
-      }
-      if (onVideoSelect) {
-        onVideoSelect({ id: video_id });
       }
     } catch (error) {
       const errorMsg = error?.message || window.__t('uploadFailedMessage');
@@ -261,12 +271,12 @@ export default function MainContent({
       setSelectedFile(null);
       setResumeUploadId(null);
 
-      // Navigate to video detail after successful upload
+      // Set uploaded video ID to start processing tracking
+      setUploadedVideoId(video_id);
+
+      // Trigger refresh sidebar
       if (onUploadSuccess) {
         onUploadSuccess();
-      }
-      if (onVideoSelect) {
-        onVideoSelect({ id: video_id });
       }
     } catch (error) {
       const errorMsg = error?.message || window.__t('uploadFailedMessage');
@@ -280,6 +290,8 @@ export default function MainContent({
     setSelectedFile(null);
     setUploading(false);
     setProgress(0);
+    setUploadedVideoId(null);
+    setVideoData(null);
     setMessage("");
   };
 
@@ -306,8 +318,86 @@ export default function MainContent({
         return;
       }
       setSelectedFile(file);
+      setUploadedVideoId(null);
+      setVideoData(null);
       setMessage("");
       setProgress(0);
+    }
+  };
+
+  // Fetch video details when uploadedVideoId OR selectedVideoId changes
+  useEffect(() => {
+    const videoId = uploadedVideoId || selectedVideoId;
+    console.log("[MainContent] videoId changed:", videoId, { uploadedVideoId, selectedVideoId });
+    
+    if (!videoId) {
+      setVideoData(null);
+      return;
+    }
+
+    const fetchVideoDetails = async () => {
+      try {
+        const response = await VideoService.getVideoById(videoId);
+        const data = response || {};
+
+        // normalize reports
+        const r1 = Array.isArray(data.reports_1) ? data.reports_1 : (data.reports_1 ? [data.reports_1] : []);
+        let r2 = Array.isArray(data.reports_2) ? data.reports_2 : (data.reports_2 ? [data.reports_2] : []);
+        if ((!r2 || r2.length === 0) && r1 && r1.length > 0) {
+          r2 = r1.map((it) => ({
+            phase_index: it.phase_index,
+            time_start: it.time_start,
+            time_end: it.time_end,
+            insight: it.insight ?? it.phase_description ?? "",
+            video_clip_url: it.video_clip_url,
+          }));
+        }
+        setVideoData({
+          id: data.id || videoId,
+          original_filename: data.original_filename,
+          status: data.status,
+          created_at: data.created_at,
+          reports_1: r1,
+          reports_2: r2,
+          report3: Array.isArray(data.report3) ? data.report3 : (data.report3 ? [data.report3] : []),
+        });
+      } catch (err) {
+        console.error('Failed to fetch video details:', err);
+      }
+    };
+
+    fetchVideoDetails();
+  }, [uploadedVideoId, selectedVideoId]);
+
+  // Handle processing complete - reload video data
+  const handleProcessingComplete = async () => {
+    const videoId = uploadedVideoId || selectedVideoId;
+    if (!videoId) return;
+    try {
+      const response = await VideoService.getVideoById(videoId);
+      const data = response || {};
+      const r1 = Array.isArray(data.reports_1) ? data.reports_1 : (data.reports_1 ? [data.reports_1] : []);
+      let r2 = Array.isArray(data.reports_2) ? data.reports_2 : (data.reports_2 ? [data.reports_2] : []);
+      if ((!r2 || r2.length === 0) && r1 && r1.length > 0) {
+        r2 = r1.map((it) => ({
+          phase_index: it.phase_index,
+          time_start: it.time_start,
+          time_end: it.time_end,
+          insight: it.insight ?? it.phase_description ?? "",
+          video_clip_url: it.video_clip_url,
+        }));
+      }
+      setVideoData({
+        id: data.id || videoId,
+        original_filename: data.original_filename,
+        status: data.status,
+        created_at: data.created_at,
+        reports_1: r1,
+        reports_2: r2,
+        report3: Array.isArray(data.report3) ? data.report3 : (data.report3 ? [data.report3] : []),
+      });
+    } catch (err) {
+      console.error('Failed to reload video after processing:', err);
     }
   };
   return (
@@ -331,7 +421,22 @@ export default function MainContent({
       />
 
       <Body>
-        {children ?? (
+        {videoData ? (
+          videoData.status === 'DONE' ? (
+            <VideoDetail video={videoData} />
+          ) : (
+            <div className="w-full flex flex-col items-center justify-center">
+              <div className="w-full max-w-md mx-auto mt-8">
+                <ProcessingSteps
+                  videoId={uploadedVideoId || selectedVideoId}
+                  initialStatus={videoData.status}
+                  videoTitle={videoData.original_filename}
+                  onProcessingComplete={handleProcessingComplete}
+                />
+              </div>
+            </div>
+          )
+        ) : children ?? (
           <>
             <div className="w-full flex flex-col items-center justify-center">
               <div className="w-full">
@@ -359,24 +464,16 @@ export default function MainContent({
                     onDragOver={handleDragOver}
                     onDrop={handleDrop}
                   >
-                    {uploading ? (
+                    {uploading || uploadedVideoId ? (
                       <>
                         <div className="flex flex-col items-center text-center space-y-6">
-                          <div className="w-full px-4">
-                            <div className="w-full bg-gray-200 rounded-full h-2">
-                              <div
-                                className="bg-purple-600 h-2 rounded-full transition-all"
-                                style={{ width: `${progress}%` }}
-                              ></div>
-                            </div>
-                            <p className="text-sm font-medium mt-2">{progress}%</p>
-                          </div>
-                          <button
-                            onClick={handleCancel}
-                            className="w-[143px] h-[41px] bg-white text-gray-600 border border-gray-300 rounded-md text-sm hover:bg-gray-100"
-                          >
-                            {window.__t('cancelButton')}
-                          </button>
+                          <ProcessingSteps
+                            videoId={uploadedVideoId}
+                            initialStatus={uploading ? "UPLOADING" : "NEW"}
+                            videoTitle={selectedFile?.name}
+                            externalProgress={uploading ? progress : undefined}
+                            onProcessingComplete={handleProcessingComplete}
+                          />
                         </div>
                       </>
                     ) : selectedFile ? (

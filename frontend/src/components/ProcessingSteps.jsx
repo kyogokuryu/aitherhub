@@ -1,0 +1,443 @@
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import VideoService from '../base/services/videoService';
+
+export default function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingComplete, externalProgress }) {
+  const [currentStatus, setCurrentStatus] = useState(initialStatus || 'NEW');
+  const [smoothProgress, setSmoothProgress] = useState(externalProgress || 0);
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [usePolling, setUsePolling] = useState(false);
+  const statusStreamRef = useRef(null);
+  const progressIntervalRef = useRef(null);
+  const pollingIntervalRef = useRef(null);
+  const lastStatusChangeRef = useRef(Date.now());
+  const retryCountRef = useRef(0);
+  const MAX_SSE_RETRIES = 2;
+
+  // Update smooth progress from external prop if provided (for upload progress)
+  useEffect(() => {
+    if (externalProgress !== undefined && externalProgress !== null) {
+      setSmoothProgress(externalProgress);
+    }
+  }, [externalProgress]);
+
+  // Helper to calculate progress percentage from status
+  const calculateProgressFromStatus = useCallback((status) => {
+    const statusMap = {
+      NEW: 0,
+      uploaded: 0,
+      STEP_0_EXTRACT_FRAMES: 5,
+      STEP_1_DETECT_PHASES: 10,
+      STEP_2_EXTRACT_METRICS: 20,
+      STEP_3_TRANSCRIBE_AUDIO: 30,
+      STEP_4_IMAGE_CAPTION: 40,
+      STEP_5_BUILD_PHASE_UNITS: 50,
+      STEP_6_BUILD_PHASE_DESCRIPTION: 60,
+      STEP_7_GROUPING: 65,
+      STEP_8_UPDATE_BEST_PHASE: 70,
+      STEP_9_BUILD_VIDEO_STRUCTURE_FEATURES: 75,
+      STEP_10_ASSIGN_VIDEO_STRUCTURE_GROUP: 80,
+      STEP_11_UPDATE_VIDEO_STRUCTURE_GROUP_STATS: 85,
+      STEP_12_UPDATE_VIDEO_STRUCTURE_BEST: 90,
+      STEP_13_BUILD_REPORTS: 95,
+      STEP_14_SPLIT_VIDEO: 98,
+      DONE: 100,
+      ERROR: -1,
+    };
+    return statusMap[status] || 0;
+  }, []);
+
+  // Start gradual progress increase
+  const startGradualProgress = useCallback((targetProgress) => {
+    // Clear any existing interval
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+    }
+
+    // Set initial progress to current target
+    setSmoothProgress(targetProgress);
+
+    // Start interval to gradually increase progress every 3-5 seconds
+    progressIntervalRef.current = setInterval(() => {
+      setSmoothProgress(prev => {
+        const increment = Math.random() * 2 + 1; // Random increment 1-3%
+        const newProgress = Math.min(prev + increment, 99); // Cap at 99% until actually complete
+
+        // Stop if we've reached a reasonable limit for this step
+        if (newProgress >= targetProgress + 5) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          return targetProgress + 5; // Allow slight overshoot for visual effect
+        }
+
+        return newProgress;
+      });
+    }, 2000 + Math.random() * 3000); // Random interval 2-5 seconds
+  }, []);
+
+  // Callback when processing completes - memoize to prevent re-creation
+  const handleProcessingComplete = useCallback(() => {
+    if (onProcessingComplete) {
+      onProcessingComplete();
+    }
+  }, [onProcessingComplete]);
+
+  // Polling fallback - fetch status periodically
+  const startPolling = useCallback(() => {
+    if (!videoId) return;
+    
+    console.log('📊 Starting polling fallback for video status');
+    setUsePolling(true);
+    setErrorMessage(null);
+
+    const poll = async () => {
+      try {
+        const response = await VideoService.getVideoById(videoId);
+        if (response && response.status) {
+          const newStatus = response.status;
+          setCurrentStatus(newStatus);
+          
+          const progress = calculateProgressFromStatus(newStatus);
+          startGradualProgress(progress);
+          lastStatusChangeRef.current = Date.now();
+
+          // Stop polling if done or error
+          if (newStatus === 'DONE' || newStatus === 'ERROR') {
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+              pollingIntervalRef.current = null;
+            }
+            if (newStatus === 'DONE' && handleProcessingComplete) {
+              handleProcessingComplete();
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Polling error:', err);
+        // Continue polling even on error - might be transient
+      }
+    };
+
+    // Poll immediately, then every 5 seconds
+    poll();
+    pollingIntervalRef.current = setInterval(poll, 5000);
+  }, [videoId, calculateProgressFromStatus, startGradualProgress, handleProcessingComplete]);
+
+  // Stream status updates if video is processing
+  useEffect(() => {
+    // Only stream/poll if video exists
+    if (!videoId) {
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+      return;
+    }
+
+    // If we're already using polling, don't try SSE again
+    if (usePolling) {
+      return;
+    }
+
+    // Close any existing stream
+    if (statusStreamRef.current) {
+      statusStreamRef.current.close();
+      statusStreamRef.current = null;
+    }
+
+    console.log(`🔌 Starting SSE stream for video ${videoId}`);
+
+    // Start SSE stream
+    statusStreamRef.current = VideoService.streamVideoStatus({
+      videoId: videoId,
+
+      onStatusUpdate: (data) => {
+        console.log(`📡 SSE Update: ${data.status}`);
+        setCurrentStatus(data.status);
+        setErrorMessage(null); // Clear any previous errors
+        retryCountRef.current = 0; // Reset retry count on success
+        // Start gradual progress increase
+        startGradualProgress(data.progress);
+        lastStatusChangeRef.current = Date.now();
+
+        // Auto-stop stream if done or error
+        if (data.status === 'DONE' || data.status === 'ERROR') {
+          console.log(`✅ Stream auto-closing due to status: ${data.status}`);
+          if (statusStreamRef.current) {
+            statusStreamRef.current.close();
+            statusStreamRef.current = null;
+          }
+        }
+      },
+
+      onDone: async () => {
+        console.log('✅ SSE Stream completed');
+        // Processing complete - notify parent
+        setCurrentStatus('DONE');
+        setSmoothProgress(100);
+        if (handleProcessingComplete) {
+          handleProcessingComplete();
+        }
+      },
+
+      onError: (error) => {
+        console.error('❌ Status stream error:', error);
+        retryCountRef.current++;
+        
+        // If we've exceeded retry attempts, fallback to polling
+        if (retryCountRef.current > MAX_SSE_RETRIES) {
+          console.warn(`SSE failed ${MAX_SSE_RETRIES} times, falling back to polling`);
+          setErrorMessage('リアルタイム更新に接続できません。定期的に更新しています。');
+          startPolling();
+        } else {
+          setErrorMessage('接続エラーが発生しました。再試行中...');
+        }
+      },
+    });
+
+    // Cleanup
+    return () => {
+      console.log(`🧹 Cleaning up SSE stream for video ${videoId}`);
+      if (statusStreamRef.current) {
+        statusStreamRef.current.close();
+        statusStreamRef.current = null;
+      }
+      if (progressIntervalRef.current) {
+        clearInterval(progressIntervalRef.current);
+        progressIntervalRef.current = null;
+      }
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [videoId, usePolling]); // Only depend on videoId and usePolling flag
+
+  // Reset progress when video changes
+  useEffect(() => {
+    setCurrentStatus(initialStatus || 'NEW');
+    setSmoothProgress(0);
+    setErrorMessage(null);
+    setUsePolling(false);
+    lastStatusChangeRef.current = Date.now();
+    retryCountRef.current = 0;
+    
+    if (progressIntervalRef.current) {
+      clearInterval(progressIntervalRef.current);
+      progressIntervalRef.current = null;
+    }
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+  }, [videoId, initialStatus]);
+  // Danh sách tất cả các steps bao gồm UPLOADING
+  const processingSteps = [
+    { key: 'UPLOADING', label: window.__t('statusUploading') || 'ファイルをアップロードしています' },
+    { key: 'NEW', label: window.__t('statusNew') || '新規' },
+    { key: 'uploaded', label: window.__t('statusUploaded') || 'アップロード完了' },
+    { key: 'STEP_0_EXTRACT_FRAMES', label: window.__t('statusStep0') || 'フレーム抽出中...' },
+    { key: 'STEP_1_DETECT_PHASES', label: window.__t('statusStep1') || 'フェーズ検出中...' },
+    { key: 'STEP_2_EXTRACT_METRICS', label: window.__t('statusStep2') || 'メトリクス抽出中...' },
+    { key: 'STEP_3_TRANSCRIBE_AUDIO', label: window.__t('statusStep3') || '音声文字起こし中...' },
+    { key: 'STEP_4_IMAGE_CAPTION', label: window.__t('statusStep4') || '画像キャプション生成中...' },
+    { key: 'STEP_5_BUILD_PHASE_UNITS', label: window.__t('statusStep5') || 'フェーズユニット構築中...' },
+    { key: 'STEP_6_BUILD_PHASE_DESCRIPTION', label: window.__t('statusStep6') || 'フェーズ説明構築中...' },
+    { key: 'STEP_7_GROUPING', label: window.__t('statusStep7') || 'グループ化中...' },
+    { key: 'STEP_8_UPDATE_BEST_PHASE', label: window.__t('statusStep8') || 'ベストフェーズ更新中...' },
+    { key: 'STEP_9_BUILD_VIDEO_STRUCTURE_FEATURES', label: window.__t('statusStep9') || '動画構造特徴構築中...' },
+    { key: 'STEP_10_ASSIGN_VIDEO_STRUCTURE_GROUP', label: window.__t('statusStep10') || '動画構造グループ割り当て中...' },
+    { key: 'STEP_11_UPDATE_VIDEO_STRUCTURE_GROUP_STATS', label: window.__t('statusStep11') || '動画構造グループ統計更新中...' },
+    { key: 'STEP_12_UPDATE_VIDEO_STRUCTURE_BEST', label: window.__t('statusStep12') || '動画構造ベスト更新中...' },
+    { key: 'STEP_13_BUILD_REPORTS', label: window.__t('statusStep13') || 'レポート構築中...' },
+    { key: 'STEP_14_SPLIT_VIDEO', label: window.__t('statusStep14') || '動画分割中...' },
+    { key: 'DONE', label: window.__t('statusDone') || '完了' },
+  ];
+
+  // Get step status: 'completed', 'current', 'pending', or 'error'
+  const getStepStatus = (stepKey) => {
+    if (currentStatus === 'ERROR') return 'error';
+    
+    const currentIndex = processingSteps.findIndex(s => s.key === currentStatus);
+    const stepIndex = processingSteps.findIndex(s => s.key === stepKey);
+    
+    if (stepIndex < currentIndex) return 'completed';
+    if (stepIndex === currentIndex) return 'current';
+    return 'pending';
+  };
+
+  // Render step icon based on status
+  const renderStepIcon = (status) => {
+    if (status === 'completed') {
+      return (
+        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-green-500/20 text-green-400">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
+          </svg>
+        </div>
+      );
+    }
+
+    if (status === 'current') {
+      return (
+        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-purple-500/20">
+          <svg className="w-4 h-4 text-purple-400 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+          </svg>
+        </div>
+      );
+    }
+
+    if (status === 'error') {
+      return (
+        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-red-500/20 text-red-400">
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+            <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-5a.75.75 0 01.75.75v4.5a.75.75 0 01-1.5 0v-4.5A.75.75 0 0110 5zm0 10a1 1 0 100-2 1 1 0 000 2z" clipRule="evenodd" />
+          </svg>
+        </div>
+      );
+    }
+
+    // Pending - hollow circle
+    return (
+      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-700/50 border border-gray-600">
+        <div className="w-2 h-2 rounded-full bg-gray-500"></div>
+      </div>
+    );
+  };
+
+  // Get visible steps window (max 5 steps, current step in middle)
+  const { visibleSteps, isFirst, isLast } = useMemo(() => {
+    const currentIndex = processingSteps.findIndex(s => s.key === currentStatus);
+    const totalSteps = processingSteps.length;
+
+    // Always show 5 steps or less if near boundaries
+    let startIndex = Math.max(0, currentIndex - 2); // Current step in middle (index 2)
+    let endIndex = Math.min(totalSteps, startIndex + 5);
+
+    // Adjust if we're near the end
+    if (endIndex - startIndex < 5) {
+      startIndex = Math.max(0, endIndex - 5);
+    }
+
+    return {
+      visibleSteps: processingSteps.slice(startIndex, endIndex),
+      isFirst: startIndex === 0,
+      isLast: endIndex === totalSteps,
+    };
+  }, [currentStatus]);
+
+  const isError = currentStatus === 'ERROR';
+
+  return (
+    <div>
+      {/* Video title */}
+      {videoTitle && (
+        <div className="flex flex-col gap-2 text-center mb-4">
+          <div className="inline-flex self-start items-center mx-auto rounded-[50px] h-[41px] px-4 border border-white/10">
+            <div className="text-[16px] font-bold whitespace-nowrap text-white bg-clip-text">
+              {videoTitle}
+            </div>
+          </div>
+        </div>
+      )}
+      
+      {/* Steps indicator - max 5 visible, current in middle */}
+      <div className="mb-4 space-y-2">
+        {/* Show ellipsis if not at start */}
+        {!isFirst && (
+          <div className="flex items-center gap-3 text-gray-500">
+            <div className="flex items-center justify-center w-6">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                <path fillRule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 11.168l3.71-3.938a.75.75 0 111.08 1.04l-4.25 4.5a.75.75 0 01-1.08 0l-4.25-4.5a.75.75 0 01.02-1.06z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <span className="text-xs text-gray-500">...</span>
+          </div>
+        )}
+
+        {/* Visible steps */}
+        {visibleSteps.map((step) => {
+          const stepStatus = getStepStatus(step.key);
+          const isActive = stepStatus === 'current';
+          const isCompleted = stepStatus === 'completed';
+
+          return (
+            <div
+              key={step.key}
+              className={`flex items-center gap-3 transition-all duration-300 ${
+                isActive ? 'opacity-100' : isCompleted ? 'opacity-60' : 'opacity-40'
+              }`}
+            >
+              {renderStepIcon(stepStatus)}
+              <span className={`text-sm ${
+                isActive ? 'text-white font-medium' :
+                isCompleted ? 'text-gray-300' :
+                'text-gray-400'
+              }`}>
+                {step.label}
+              </span>
+            </div>
+          );
+        })}
+
+        {/* Show ellipsis if not at end */}
+        {!isLast && (
+          <div className="flex items-center gap-3 text-gray-500">
+            <div className="flex items-center justify-center w-6">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                <path fillRule="evenodd" d="M14.77 12.79a.75.75 0 01-1.06-.02L10 8.832l-3.71 3.938a.75.75 0 11-1.08-1.04l4.25-4.5a.75.75 0 011.08 0l4.25 4.5a.75.75 0 01-.02 1.06z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <span className="text-xs text-gray-500">...</span>
+          </div>
+        )}
+      </div>
+
+      {/* Progress bar */}
+      {!isError && smoothProgress >= 0 && (
+        <>
+          <div className="w-full bg-gray-700 rounded-full h-2">
+            <div
+              className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
+              style={{ width: `${smoothProgress}%` }}
+            />
+          </div>
+          {/* Current status message */}
+          <div className="flex items-center justify-between mb-4 mt-1">
+            <span className="text-sm font-semibold">
+              {visibleSteps.find(s => getStepStatus(s.key) === 'current')?.label || ''}
+            </span>
+            <span className="text-sm text-gray-400">
+              {Math.round(smoothProgress)}%
+            </span>
+          </div>
+
+          <p className="text-sm text-gray-400 mt-5 text-center">
+            {window.__t('progressCompleteMessage') || '解析が完了すると、自動的に結果が表示されます。'}
+          </p>
+          
+          {/* Show warning if using polling fallback */}
+          {errorMessage && (
+            <p className="text-xs text-yellow-400 mt-2 text-center">
+              {errorMessage}
+            </p>
+          )}
+        </>
+      )}
+
+      {/* Error message */}
+      {isError && (
+        <p className="text-sm text-red-400 mt-2">
+          {window.__t('errorAnalysisMessage') || '解析中にエラーが発生しました。'}
+        </p>
+      )}
+    </div>
+  );
+}
