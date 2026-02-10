@@ -1,10 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import logo from "../assets/logo/logo.svg";
-import write from "../assets/icons/write.png";
-import searchIcon from "../assets/icons/searchBlack.png";
 import searchMobile from "../assets/icons/searchmobile.png";
-import textSearch from "../assets/icons/text.png";
 import searchSp from "../assets/icons/searchSp.png";
 import library from "../assets/icons/Library.png";
 
@@ -36,8 +33,6 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
 
   // ===== SP search =====
   const [searchValue, setSearchValue] = useState("");
-  const [isFocus, setIsFocus] = useState(false);
-  const showPlaceholder = !isFocus && searchValue === "";
   const [showBackButton, setShowBackButton] = useState(false);
 
   // ===== user fallback =====
@@ -161,8 +156,8 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
                 }
               }}
               className={`flex items-center gap-2 p-2 px-4 border rounded-md cursor-pointer transition-all duration-200 ease-out ${!showFeedback && !selectedVideo
-                  ? "border-purple-300 bg-purple-50 text-purple-700"
-                  : "border-gray-200 hover:bg-gray-100"
+                ? "border-purple-300 bg-purple-50 text-purple-700"
+                : "border-gray-200 hover:bg-gray-100"
                 }`}
             >
               {/* <img src={write} className="w-[30px] h-[30px]" /> */}
@@ -190,8 +185,8 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
                 }
               }}
               className={`flex items-center gap-2 p-2 px-4 mt-2 border rounded-md cursor-pointer transition-all duration-200 ease-out ${showFeedback
-                  ? "border-purple-300 bg-purple-50 text-purple-700"
-                  : "border-gray-200 hover:bg-gray-100"
+                ? "border-purple-300 bg-purple-50 text-purple-700"
+                : "border-gray-200 hover:bg-gray-100"
                 }`}
             >
               <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={showFeedback ? "#7c3aed" : "#213547"} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-message-square-icon lucide-message-square transition-colors duration-200 ease-out"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" /></svg>
@@ -211,8 +206,6 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
                   placeholder="検索"
                   value={searchValue}
                   onChange={(e) => setSearchValue(e.target.value)}
-                  onFocus={() => setIsFocus(true)}
-                  onBlur={() => setIsFocus(false)}
                   className="
                     w-full h-[40px] rounded-[5px] bg-white text-black pl-[35px] pr-3 outline-none
 
@@ -265,12 +258,17 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
           {effectiveUser?.isLoggedIn && (
             <>
               <div className="flex-1 min-h-0 flex flex-col">
-                {loadingVideos ? (
+                {loadingVideos && videos.length === 0 ? (
                   <div className="flex items-center justify-center py-4">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div>
                   </div>
                 ) : videos.length > 0 ? (
                   <div className="flex flex-col items-start gap-2 flex-1 min-h-0 overflow-y-auto scrollbar-custom">
+                    {loadingVideos && (
+                      <div className="w-full flex justify-center py-1">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
+                      </div>
+                    )}
                     {videos.map((video) => (
                       <div className={`w-full min-h-10 flex items-center gap-2 font-semibold cursor-pointer text-black p-2 rounded-lg text-left transition-all duration-200 ease-out ${selectedVideoId === video.id
                         ? "bg-purple-100 text-purple-700"

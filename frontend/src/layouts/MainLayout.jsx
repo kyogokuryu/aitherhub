@@ -1,7 +1,5 @@
 import Sidebar from "../components/Sidebar";
 import MainContent from '../components/MainContent';
-import VideoDetail from '../components/VideoDetail';
-import FeedbackPage from '../components/FeedbackPage';
 import { useState, useCallback, useMemo, useEffect } from "react";
 
 const getUserFromStorage = () => {
@@ -73,13 +71,22 @@ export default function MainLayout() {
     setSelectedVideoId(null);
     setOpenSidebar(false);
   }, []);
+  const handleShowFeedback = useCallback(() => {
+    setShowFeedback(true);
+    setSelectedVideoId(null);
+    setOpenSidebar(false);
+  }, []);
 
   const handleCloseFeedback = useCallback(() => {
     setShowFeedback(false);
   }, []);
 
-  const handleUploadSuccess = useCallback(() => {
+  const handleUploadSuccess = useCallback((videoId) => {
     setRefreshKey(prev => prev + 1);
+    if (videoId) {
+      setShowFeedback(false);
+      setSelectedVideoId(videoId);
+    }
   }, []);
 
   const sidebarProps = useMemo(() => ({
@@ -89,10 +96,11 @@ export default function MainLayout() {
     onVideoSelect: handleVideoSelect,
     onNewAnalysis: handleNewAnalysis,
     onShowFeedback: handleShowFeedback,
+    onCloseFeedback: handleCloseFeedback,
     refreshKey,
     showFeedback,
     selectedVideo: selectedVideoId ? { id: selectedVideoId } : null,
-  }), [openSidebar, handleCloseSidebar, user, handleVideoSelect, handleNewAnalysis, handleShowFeedback, refreshKey, selectedVideoId, showFeedback]);
+  }), [openSidebar, handleCloseSidebar, user, handleVideoSelect, handleNewAnalysis, handleShowFeedback, handleCloseFeedback, refreshKey, selectedVideoId, showFeedback]);
 
   const mainContentProps = useMemo(() => ({
     onOpenSidebar: handleOpenSidebar,
@@ -100,7 +108,9 @@ export default function MainLayout() {
     setUser: handleUserChange,
     onUploadSuccess: handleUploadSuccess,
     selectedVideoId,
-  }), [handleOpenSidebar, user, handleUserChange, handleUploadSuccess, selectedVideoId]);
+    showFeedback,
+    onCloseFeedback: handleCloseFeedback,
+  }), [handleOpenSidebar, user, handleUserChange, handleUploadSuccess, selectedVideoId, showFeedback, handleCloseFeedback]);
 
   return (
     <div className="min-h-screen bg-gray-100 flex justify-center">
@@ -117,11 +127,6 @@ export default function MainLayout() {
         <main className="w-full md:flex-1 bg-[linear-gradient(180deg,rgba(69,0,255,1),rgba(155,0,255,1))]
  text-white">
           <MainContent {...mainContentProps}>
-            {showFeedback ? (
-              <FeedbackPage onBack={handleCloseFeedback} />
-            ) : (
-              selectedVideo && <VideoDetail video={selectedVideo} />
-            )}
           </MainContent>
         </main>
       </div>

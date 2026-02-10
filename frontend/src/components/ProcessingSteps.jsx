@@ -1,15 +1,15 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { memo, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import VideoService from '../base/services/videoService';
 
-export default function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingComplete, externalProgress }) {
+function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingComplete, externalProgress }) {
   const [currentStatus, setCurrentStatus] = useState(initialStatus || 'NEW');
   const [smoothProgress, setSmoothProgress] = useState(externalProgress || 0);
   const [errorMessage, setErrorMessage] = useState(null);
-  const [usePolling, setUsePolling] = useState(false);
+  const [_usePolling, setUsePolling] = useState(false);
   const statusStreamRef = useRef(null);
   const progressIntervalRef = useRef(null);
   const pollingIntervalRef = useRef(null);
-  const lastStatusChangeRef = useRef(Date.now());
+  const lastStatusChangeRef = useRef(0);
   const retryCountRef = useRef(0);
   const lastInitializedVideoIdRef = useRef(null); // Track last initialized videoId
   const MAX_SSE_RETRIES = 2;
@@ -17,7 +17,7 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
   // Update smooth progress from external prop if provided (for upload progress)
   useEffect(() => {
     if (externalProgress !== undefined && externalProgress !== null) {
-      setSmoothProgress(externalProgress);
+      queueMicrotask(() => setSmoothProgress(externalProgress));
     }
   }, [externalProgress]);
 
@@ -40,6 +40,7 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
       STEP_11_UPDATE_VIDEO_STRUCTURE_GROUP_STATS: 85,
       STEP_12_UPDATE_VIDEO_STRUCTURE_BEST: 90,
       STEP_13_BUILD_REPORTS: 95,
+      STEP_14_FINALIZE: 98,
       STEP_14_SPLIT_VIDEO: 98,
       DONE: 100,
       ERROR: -1,
@@ -87,7 +88,7 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
   // Polling fallback - fetch status periodically
   const startPolling = useCallback(() => {
     if (!videoId) return;
-    
+
     console.log('📊 Starting polling fallback for video status');
     setUsePolling(true);
     setErrorMessage(null);
@@ -98,7 +99,7 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
         if (response && response.status) {
           const newStatus = response.status;
           setCurrentStatus(newStatus);
-          
+
           const progress = calculateProgressFromStatus(newStatus);
           startGradualProgress(progress);
           lastStatusChangeRef.current = Date.now();
@@ -129,10 +130,12 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
   useEffect(() => {
     // Only reset state when videoId actually changes
     if (lastInitializedVideoIdRef.current !== videoId) {
-      setCurrentStatus(initialStatus || 'NEW');
-      setSmoothProgress(0);
-      setErrorMessage(null);
-      setUsePolling(false);
+      queueMicrotask(() => {
+        setCurrentStatus(initialStatus || 'NEW');
+        setSmoothProgress(0);
+        setErrorMessage(null);
+        setUsePolling(false);
+      });
       lastStatusChangeRef.current = Date.now();
       retryCountRef.current = 0;
     }
@@ -205,7 +208,7 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
       onError: (error) => {
         console.error('❌ Status stream error:', error);
         retryCountRef.current++;
-        
+
         // If we've exceeded retry attempts, fallback to polling
         if (retryCountRef.current > MAX_SSE_RETRIES) {
           console.warn(`SSE failed ${MAX_SSE_RETRIES} times, falling back to polling`);
@@ -221,7 +224,7 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
     // Don't close in StrictMode when videoId stays the same
     return () => {
       const videoIdChanged = lastInitializedVideoIdRef.current !== videoId;
-      
+
       if (videoIdChanged) {
         console.log(`🧹 Cleaning up SSE stream for video ${videoId} (videoId changed)`);
         if (statusStreamRef.current) {
@@ -229,7 +232,7 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
           statusStreamRef.current = null;
         }
       }
-      
+
       // Always clear intervals
       if (progressIntervalRef.current) {
         clearInterval(progressIntervalRef.current);
@@ -241,10 +244,10 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
       }
     };
   }, [videoId]); // Only depend on videoId, not initialStatus which changes frequently
-  // Danh sách tất cả các steps bao gồm UPLOADING
-  const processingSteps = [
-    { key: 'UPLOADING', label: window.__t('statusNew') || 'ファイルをアップロードしています' },
-    { key: 'uploaded', label: window.__t('statusUploaded') || 'アップロード完了' },
+  const uploadStep = { key: 'uploaded', label: window.__t('statusUploaded') || 'アップロード完了' };
+
+  // Analysis steps are shown in a 5-row window while upload step stays fixed above.
+  const analysisSteps = [
     { key: 'STEP_0_EXTRACT_FRAMES', label: window.__t('statusStep0') || 'フレーム抽出中...' },
     { key: 'STEP_1_DETECT_PHASES', label: window.__t('statusStep1') || 'フェーズ検出中...' },
     { key: 'STEP_2_EXTRACT_METRICS', label: window.__t('statusStep2') || 'メトリクス抽出中...' },
@@ -259,17 +262,27 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
     { key: 'STEP_11_UPDATE_VIDEO_STRUCTURE_GROUP_STATS', label: window.__t('statusStep11') || '動画構造グループ統計更新中...' },
     { key: 'STEP_12_UPDATE_VIDEO_STRUCTURE_BEST', label: window.__t('statusStep12') || '動画構造ベスト更新中...' },
     { key: 'STEP_13_BUILD_REPORTS', label: window.__t('statusStep13') || 'レポート構築中...' },
-    { key: 'STEP_14_SPLIT_VIDEO', label: window.__t('statusStep14') || '動画分割中...' },
+    { key: 'STEP_14_FINALIZE', label: window.__t('statusStep14') || '動画分割中...' },
     { key: 'DONE', label: window.__t('statusDone') || '完了' },
   ];
 
-  // Get step status: 'completed', 'current', 'pending', or 'error'
-  const getStepStatus = (stepKey) => {
+  const getUploadStepStatus = () => {
+    if (currentStatus === 'UPLOADING') return 'current';
+    if (currentStatus === 'NEW') return 'pending';
+    return 'completed';
+  };
+
+  // Get analysis step status: 'completed', 'current', 'pending', or 'error'
+  const getAnalysisStepStatus = (stepKey) => {
     if (currentStatus === 'ERROR') return 'error';
-    
-    const currentIndex = processingSteps.findIndex(s => s.key === currentStatus);
-    const stepIndex = processingSteps.findIndex(s => s.key === stepKey);
-    
+    if (currentStatus === 'NEW' || currentStatus === 'UPLOADING' || currentStatus === 'uploaded') {
+      return 'pending';
+    }
+
+    const currentIndex = analysisSteps.findIndex(s => s.key === currentStatus);
+    const stepIndex = analysisSteps.findIndex(s => s.key === stepKey);
+
+    if (currentIndex === -1) return 'pending';
     if (stepIndex < currentIndex) return 'completed';
     if (stepIndex === currentIndex) return 'current';
     return 'pending';
@@ -279,7 +292,7 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
   const renderStepIcon = (status) => {
     if (status === 'completed') {
       return (
-        <div className="flex items-center justify-center w-6 h-6 rounded-full bg-green-500/20 text-green-400">
+        <div className="flex items-center justify-center w-5 h-5 rounded-full bg-green-500 text-white">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
             <path fillRule="evenodd" d="M16.704 4.153a.75.75 0 01.143 1.052l-8 10.5a.75.75 0 01-1.127.075l-4.5-4.5a.75.75 0 011.06-1.06l3.894 3.893 7.48-9.817a.75.75 0 011.05-.143z" clipRule="evenodd" />
           </svg>
@@ -310,16 +323,17 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
 
     // Pending - hollow circle
     return (
-      <div className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-700/50 border border-gray-600">
+      <div className="flex items-center justify-center w-5 h-5 rounded-full bg-gray-700/50">
         <div className="w-2 h-2 rounded-full bg-gray-500"></div>
       </div>
     );
   };
 
-  // Get visible steps window (max 5 steps, current step in middle)
-  const { visibleSteps, isFirst, isLast } = useMemo(() => {
-    const currentIndex = processingSteps.findIndex(s => s.key === currentStatus);
-    const totalSteps = processingSteps.length;
+  // Get visible analysis steps window (max 5 steps, current step in middle)
+  const { visibleAnalysisSteps, isAnalysisFirst, isAnalysisLast } = useMemo(() => {
+    const totalSteps = analysisSteps.length;
+    const foundIndex = analysisSteps.findIndex(s => s.key === currentStatus);
+    const currentIndex = foundIndex >= 0 ? foundIndex : 0;
 
     // Always show 5 steps or less if near boundaries
     let startIndex = Math.max(0, currentIndex - 2); // Current step in middle (index 2)
@@ -331,31 +345,55 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
     }
 
     return {
-      visibleSteps: processingSteps.slice(startIndex, endIndex),
-      isFirst: startIndex === 0,
-      isLast: endIndex === totalSteps,
+      visibleAnalysisSteps: analysisSteps.slice(startIndex, endIndex),
+      isAnalysisFirst: startIndex === 0,
+      isAnalysisLast: endIndex === totalSteps,
     };
   }, [currentStatus]);
 
   const isError = currentStatus === 'ERROR';
-
-  return (
-    <div>
-      {/* Video title */}
-      {videoTitle && (
-        <div className="flex flex-col gap-2 text-center mb-4">
-          <div className="inline-flex self-start items-center mx-auto rounded-[50px] h-[41px] px-4 border border-white/10">
-            <div className="text-[16px] font-bold whitespace-nowrap text-white bg-clip-text">
-              {videoTitle}
-            </div>
+  const uploadStepStatus = getUploadStepStatus();
+  const currentAnalysisLabel = visibleAnalysisSteps.find(
+    (step) => getAnalysisStepStatus(step.key) === 'current',
+  )?.label;
+  const progressLabel = uploadStepStatus === 'current'
+    ? (window.__t('statusNew') || 'ファイルをアップロードしています')
+    : (currentAnalysisLabel || (window.__t('statusAnalyzing') || '解析中...'));
+  const videoTitleNode = useMemo(() => {
+    if (!videoTitle) return null;
+    return (
+      <div className="flex justify-center mb-5">
+        <div className="inline-flex items-center px-4 py-2 rounded-full border border-white/30 bg-white/5">
+          <div className="text-sm font-medium whitespace-nowrap text-white">
+            {videoTitle}
           </div>
         </div>
-      )}
-      
-      {/* Steps indicator - max 5 visible, current in middle */}
+      </div>
+    );
+  }, [videoTitle]);
+
+  return (
+    <div className="w-full">
+      {/* Video title */}
+      {videoTitleNode}
+
+      {/* Fixed upload step + scrolling analysis steps */}
       <div className="mb-4 space-y-2">
-        {/* Show ellipsis if not at start */}
-        {!isFirst && (
+        <div className="flex items-center gap-3 transition-all duration-300">
+          {renderStepIcon(uploadStepStatus)}
+          <span className={`text-sm ${uploadStepStatus === 'current' ? 'text-white font-medium' : 'text-green-500'}`}>
+            {uploadStep.label}
+          </span>
+        </div>
+
+        <div className="pt-1 pb-1 text-left">
+          <p className="text-[11px] text-white/45">
+            {window.__t('analysisSectionHint') || 'アップロード完了後、解析ステップを実行中'}
+          </p>
+        </div>
+
+        {/* Show ellipsis if analysis window is not at start */}
+        {!isAnalysisFirst && (
           <div className="flex items-center gap-3 text-gray-500">
             <div className="flex items-center justify-center w-6">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -366,33 +404,30 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
           </div>
         )}
 
-        {/* Visible steps */}
-        {visibleSteps.map((step) => {
-          const stepStatus = getStepStatus(step.key);
+        {/* Visible analysis steps */}
+        {visibleAnalysisSteps.map((step) => {
+          const stepStatus = getAnalysisStepStatus(step.key);
           const isActive = stepStatus === 'current';
           const isCompleted = stepStatus === 'completed';
 
           return (
             <div
               key={step.key}
-              className={`flex items-center gap-3 transition-all duration-300 ${
-                isActive ? 'opacity-100' : isCompleted ? 'opacity-60' : 'opacity-40'
-              }`}
+              className={`flex items-center gap-3 transition-all duration-300`}
             >
               {renderStepIcon(stepStatus)}
-              <span className={`text-sm ${
-                isActive ? 'text-white font-medium' :
-                isCompleted ? 'text-gray-300' :
-                'text-gray-400'
-              }`}>
+              <span className={`text-sm ${isActive ? 'text-white font-medium' :
+                isCompleted ? 'text-green-500' :
+                  'text-gray-400'
+                }`}>
                 {step.label}
               </span>
             </div>
           );
         })}
 
-        {/* Show ellipsis if not at end */}
-        {!isLast && (
+        {/* Show ellipsis if analysis window is not at end */}
+        {!isAnalysisLast && (
           <div className="flex items-center gap-3 text-gray-500">
             <div className="flex items-center justify-center w-6">
               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
@@ -407,26 +442,26 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
       {/* Progress bar */}
       {!isError && smoothProgress >= 0 && (
         <>
-          <div className="w-full bg-gray-700 rounded-full h-2">
+          <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
             <div
-              className="bg-gradient-to-r from-purple-500 to-pink-500 h-2 rounded-full transition-all duration-300"
+              className="h-2 rounded-full transition-all duration-300 bg-gradient-to-r from-indigo-500 to-violet-400"
               style={{ width: `${smoothProgress}%` }}
             />
           </div>
           {/* Current status message */}
-          <div className="flex items-center justify-between mb-4 mt-1">
-            <span className="text-sm font-semibold">
-              {visibleSteps.find(s => getStepStatus(s.key) === 'current')?.label || ''}
+          <div className="flex items-center justify-between mb-3 mt-2">
+            <span className="text-sm text-white/70">
+              {progressLabel}
             </span>
-            <span className="text-sm text-gray-400">
+            <span className="text-sm text-white/70">
               {Math.round(smoothProgress)}%
             </span>
           </div>
 
-          <p className="text-sm text-gray-400 mt-5 text-center">
+          <p className="text-sm text-white/50 mt-5 text-center">
             {window.__t('progressCompleteMessage') || '解析が完了すると、自動的に結果が表示されます。'}
           </p>
-          
+
           {/* Show warning if using polling fallback */}
           {errorMessage && (
             <p className="text-xs text-yellow-400 mt-2 text-center">
@@ -445,3 +480,12 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
     </div>
   );
 }
+
+const areProcessingStepsPropsEqual = (prevProps, nextProps) =>
+  prevProps.videoId === nextProps.videoId &&
+  prevProps.initialStatus === nextProps.initialStatus &&
+  prevProps.videoTitle === nextProps.videoTitle &&
+  prevProps.externalProgress === nextProps.externalProgress &&
+  prevProps.onProcessingComplete === nextProps.onProcessingComplete;
+
+export default memo(ProcessingSteps, areProcessingStepsPropsEqual);

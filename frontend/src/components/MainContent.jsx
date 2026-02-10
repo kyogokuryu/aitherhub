@@ -1,12 +1,12 @@
 import { Header, Body, Footer } from "./main";
-import uploadIcon from "../assets/upload.png";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import UploadService from "../base/services/uploadService";
 import VideoService from "../base/services/videoService";
 import { toast } from "react-toastify";
 import LoginModal from "./modals/LoginModal";
 import ProcessingSteps from "./ProcessingSteps";
 import VideoDetail from "./VideoDetail";
+import FeedbackPage from "./FeedbackPage";
 
 export default function MainContent({
   children,
@@ -15,6 +15,8 @@ export default function MainContent({
   setUser,
   onUploadSuccess,
   selectedVideoId,
+  showFeedback,
+  onCloseFeedback,
 }) {
   const isLoggedIn = Boolean(
     user &&
@@ -40,16 +42,54 @@ export default function MainContent({
   const [resumeUploadId, setResumeUploadId] = useState(null);
   const prevIsLoggedInRef = useRef(isLoggedIn);
   const resumeFileInputRef = useRef(null);
-
-  // Clear resume upload file name on page reload
-  useEffect(() => {
-    localStorage.removeItem('resumeUploadFileName');
-  }, []);
+  const videoRequestIdRef = useRef(0);
+  const lastRequestedVideoIdRef = useRef(null);
+  const videoAbortControllerRef = useRef(null);
+  const activeResumeUploadStorageKeyRef = useRef(null);
+  const prevSelectedVideoIdRef = useRef(selectedVideoId);
+  const processingVideoTitleRef = useRef("");
 
   useEffect(() => {
     console.log("[MainContent] user", user);
     console.log("[MainContent] isLoggedIn", isLoggedIn);
   }, [user, isLoggedIn]);
+
+  const normalizeVideoData = (data, fallbackVideoId) => {
+    const r1 = Array.isArray(data.reports_1) ? data.reports_1 : (data.reports_1 ? [data.reports_1] : []);
+    let r2 = Array.isArray(data.reports_2) ? data.reports_2 : (data.reports_2 ? [data.reports_2] : []);
+    if ((!r2 || r2.length === 0) && r1 && r1.length > 0) {
+      r2 = r1.map((it) => ({
+        phase_index: it.phase_index,
+        time_start: it.time_start,
+        time_end: it.time_end,
+        insight: it.insight ?? it.phase_description ?? "",
+        video_clip_url: it.video_clip_url,
+      }));
+    }
+
+    return {
+      id: data.id || fallbackVideoId,
+      original_filename: data.original_filename,
+      status: data.status,
+      created_at: data.created_at,
+      reports_1: r1,
+      reports_2: r2,
+      report3: Array.isArray(data.report3) ? data.report3 : (data.report3 ? [data.report3] : []),
+    };
+  };
+
+  const buildResumeUploadStorageKey = (userId, uploadId) => {
+    if (!userId || !uploadId) return null;
+    return `resumeUpload:${userId}:${uploadId}`;
+  };
+
+  const clearActiveResumeUploadStorageKey = () => {
+    const key = activeResumeUploadStorageKeyRef.current;
+    if (key) {
+      localStorage.removeItem(key);
+      activeResumeUploadStorageKeyRef.current = null;
+    }
+  };
 
   // If token expires and user logs in again via modal, clear old upload result message.
   useEffect(() => {
@@ -167,7 +207,11 @@ export default function MainContent({
     setProgress(0);
 
     try {
-      localStorage.setItem('resumeUploadFileName', file.name);
+      const storageKey = buildResumeUploadStorageKey(user?.id, resumeUploadId);
+      if (storageKey) {
+        activeResumeUploadStorageKeyRef.current = storageKey;
+        localStorage.setItem(storageKey, "active");
+      }
       // Get metadata from IndexedDB
       const metadata = await UploadService.getUploadMetadata(resumeUploadId);
       if (!metadata) {
@@ -183,7 +227,6 @@ export default function MainContent({
         throw new Error(`選択したファイルが一致しません。再度ファイルを選択してください。`);
       }
 
-      const blockIds = metadata.blockIds || [];
       const uploadedBlockIds = metadata.uploadedBlocks || [];
       const maxUploadedIndex = uploadedBlockIds.length > 0
         ? Math.max(...uploadedBlockIds.map(id => {
@@ -231,13 +274,13 @@ export default function MainContent({
 
       // Trigger refresh sidebar
       if (onUploadSuccess) {
-        onUploadSuccess();
+        onUploadSuccess(video_id);
       }
-      localStorage.removeItem('resumeUploadFileName');
     } catch (error) {
       const errorMsg = error?.message || window.__t('uploadFailedMessage');
       toast.error(errorMsg);
     } finally {
+      clearActiveResumeUploadStorageKey();
       setUploading(false);
       setProcessingResume(false);
       // Reset file input
@@ -263,17 +306,22 @@ export default function MainContent({
     setUploading(true);
     setMessage("");
     setProgress(0);
-    
+
     try {
-      localStorage.setItem('resumeUploadFileName', selectedFile.name);
       const video_id = await UploadService.uploadFile(
         selectedFile,
         user.email,
         (percentage) => {
           setProgress(percentage);
-        }
+        },
+        ({ uploadId }) => {
+          const storageKey = buildResumeUploadStorageKey(user?.id, uploadId);
+          if (storageKey) {
+            activeResumeUploadStorageKeyRef.current = storageKey;
+            localStorage.setItem(storageKey, "active");
+          }
+        },
       );
-      localStorage.removeItem('resumeUploadFileName');
       setMessageType("success");
       setSelectedFile(null);
       setResumeUploadId(null);
@@ -283,12 +331,13 @@ export default function MainContent({
 
       // Trigger refresh sidebar
       if (onUploadSuccess) {
-        onUploadSuccess();
+        onUploadSuccess(video_id);
       }
     } catch (error) {
       const errorMsg = error?.message || window.__t('uploadFailedMessage');
       toast.error(errorMsg);
     } finally {
+      clearActiveResumeUploadStorageKey();
       setUploading(false);
     }
   };
@@ -335,103 +384,156 @@ export default function MainContent({
   // Clear uploadedVideoId when selectedVideoId is set (from sidebar selection)
   // This ensures only ONE ProcessingSteps is rendered
   useEffect(() => {
-    if (selectedVideoId) {
+    // Keep uploadedVideoId when sidebar auto-selects the same freshly uploaded video.
+    // Only clear upload-tracking state when user switches to a different history item.
+    if (selectedVideoId && selectedVideoId !== uploadedVideoId) {
       console.log("[MainContent] Clearing uploadedVideoId due to selectedVideoId:", selectedVideoId);
       setUploadedVideoId(null);
       setSelectedFile(null);
       setProgress(0);
       setUploading(false);
     }
+  }, [selectedVideoId, uploadedVideoId]);
+
+  // When leaving a selected history video and returning to home, clear upload-tracking UI state.
+  useEffect(() => {
+    const prevSelectedVideoId = prevSelectedVideoIdRef.current;
+    if (prevSelectedVideoId && !selectedVideoId) {
+      setUploadedVideoId(null);
+      setSelectedFile(null);
+      setProgress(0);
+      setUploading(false);
+    }
+    prevSelectedVideoIdRef.current = selectedVideoId;
   }, [selectedVideoId]);
+
+  useEffect(() => {
+    return () => {
+      if (videoAbortControllerRef.current) {
+        videoAbortControllerRef.current.abort();
+        videoAbortControllerRef.current = null;
+      }
+    };
+  }, []);
 
   // Fetch video details when uploadedVideoId OR selectedVideoId changes
   useEffect(() => {
     const videoId = uploadedVideoId || selectedVideoId;
     console.log("[MainContent] Fetching video details for:", videoId);
-    
+
+    if (videoAbortControllerRef.current) {
+      videoAbortControllerRef.current.abort();
+      videoAbortControllerRef.current = null;
+    }
+
     if (!videoId) {
+      videoRequestIdRef.current += 1;
+      lastRequestedVideoIdRef.current = null;
       setVideoData(null);
       setLoadingVideo(false);
-      
-      // Check if there's a pending upload in localStorage
-      const resumeFileName = localStorage.getItem('resumeUploadFileName');
-      if (resumeFileName) {
-        // Restore upload UI state for pending upload
-        setUploading(true);
-        setSelectedFile({ name: resumeFileName }); // Set file name for UI display
-      }
       return;
     }
 
+    // Ignore duplicate fetch trigger for same effective video id.
+    // This avoids remount flicker when selectedVideoId is auto-set
+    // right after uploadedVideoId with the same value.
+    if (lastRequestedVideoIdRef.current === videoId) {
+      return;
+    }
+    lastRequestedVideoIdRef.current = videoId;
+
+    const currentRequestId = ++videoRequestIdRef.current;
+    const controller = new AbortController();
+    videoAbortControllerRef.current = controller;
+
+    setVideoData(null);
     setLoadingVideo(true);
     const fetchVideoDetails = async () => {
       try {
-        const response = await VideoService.getVideoById(videoId);
+        const response = await VideoService.getVideoById(videoId, { signal: controller.signal });
+        if (currentRequestId !== videoRequestIdRef.current) return;
         const data = response || {};
-        // normalize reports
-        const r1 = Array.isArray(data.reports_1) ? data.reports_1 : (data.reports_1 ? [data.reports_1] : []);
-        let r2 = Array.isArray(data.reports_2) ? data.reports_2 : (data.reports_2 ? [data.reports_2] : []);
-        if ((!r2 || r2.length === 0) && r1 && r1.length > 0) {
-          r2 = r1.map((it) => ({
-            phase_index: it.phase_index,
-            time_start: it.time_start,
-            time_end: it.time_end,
-            insight: it.insight ?? it.phase_description ?? "",
-            video_clip_url: it.video_clip_url,
-          }));
-        }
-        const newVideoData = {
-          id: data.id || videoId,
-          original_filename: data.original_filename,
-          status: data.status,
-          created_at: data.created_at,
-          reports_1: r1,
-          reports_2: r2,
-          report3: Array.isArray(data.report3) ? data.report3 : (data.report3 ? [data.report3] : []),
-        };
-        
-        setVideoData(newVideoData);
+        setVideoData(normalizeVideoData(data, videoId));
       } catch (err) {
+        if (controller.signal.aborted) return;
+        if (currentRequestId !== videoRequestIdRef.current) return;
         console.error('Failed to fetch video details:', err);
+        setVideoData(null);
       } finally {
-        setLoadingVideo(false);
+        if (currentRequestId === videoRequestIdRef.current) {
+          setLoadingVideo(false);
+          if (videoAbortControllerRef.current === controller) {
+            videoAbortControllerRef.current = null;
+          }
+        }
       }
     };
 
     fetchVideoDetails();
+    return () => {
+      controller.abort();
+    };
   }, [uploadedVideoId, selectedVideoId]);
 
   // Handle processing complete - reload video data
-  const handleProcessingComplete = async () => {
+  const handleProcessingComplete = useCallback(async () => {
     const videoId = uploadedVideoId || selectedVideoId;
     if (!videoId) return;
-    try {
-      const response = await VideoService.getVideoById(videoId);
-      const data = response || {};
-      const r1 = Array.isArray(data.reports_1) ? data.reports_1 : (data.reports_1 ? [data.reports_1] : []);
-      let r2 = Array.isArray(data.reports_2) ? data.reports_2 : (data.reports_2 ? [data.reports_2] : []);
-      if ((!r2 || r2.length === 0) && r1 && r1.length > 0) {
-        r2 = r1.map((it) => ({
-          phase_index: it.phase_index,
-          time_start: it.time_start,
-          time_end: it.time_end,
-          insight: it.insight ?? it.phase_description ?? "",
-          video_clip_url: it.video_clip_url,
-        }));
-      }
-      setVideoData({
-        id: data.id || videoId,
-        original_filename: data.original_filename,
-        status: data.status,
-        created_at: data.created_at,
-        reports_1: r1,
-        reports_2: r2,
-        report3: Array.isArray(data.report3) ? data.report3 : (data.report3 ? [data.report3] : []),
-      });
-    } catch (err) {
-      console.error('Failed to reload video after processing:', err);
+    lastRequestedVideoIdRef.current = videoId;
+
+    if (videoAbortControllerRef.current) {
+      videoAbortControllerRef.current.abort();
+      videoAbortControllerRef.current = null;
     }
-  };
+
+    const currentRequestId = ++videoRequestIdRef.current;
+    const controller = new AbortController();
+    videoAbortControllerRef.current = controller;
+
+    setLoadingVideo(true);
+    try {
+      const response = await VideoService.getVideoById(videoId, { signal: controller.signal });
+      if (currentRequestId !== videoRequestIdRef.current) return;
+      const data = response || {};
+      setVideoData(normalizeVideoData(data, videoId));
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      if (currentRequestId !== videoRequestIdRef.current) return;
+      console.error('Failed to reload video after processing:', err);
+    } finally {
+      if (currentRequestId === videoRequestIdRef.current) {
+        setLoadingVideo(false);
+        if (videoAbortControllerRef.current === controller) {
+          videoAbortControllerRef.current = null;
+        }
+      }
+    }
+  }, [uploadedVideoId, selectedVideoId]);
+
+  const shouldShowGlobalVideoLoading =
+    loadingVideo &&
+    Boolean(selectedVideoId) &&
+    selectedVideoId !== uploadedVideoId;
+  const activeProcessingVideoId = uploadedVideoId || selectedVideoId;
+  const shouldRenderProcessing =
+    !showFeedback &&
+    !shouldShowGlobalVideoLoading &&
+    (uploading || Boolean(activeProcessingVideoId)) &&
+    (!videoData || (videoData.status !== 'DONE' && videoData.status !== 'ERROR'));
+  const stableProcessingVideoTitle = useMemo(() => {
+    const nextTitle = videoData?.original_filename || selectedFile?.name || "";
+    if (nextTitle) {
+      processingVideoTitleRef.current = nextTitle;
+    }
+    return processingVideoTitleRef.current;
+  }, [videoData?.original_filename, selectedFile?.name]);
+
+  useEffect(() => {
+    if (!activeProcessingVideoId && !uploading) {
+      processingVideoTitleRef.current = "";
+    }
+  }, [activeProcessingVideoId, uploading]);
+
   return (
     <div className="flex flex-col h-screen">
       <Header onOpenSidebar={onOpenSidebar} user={user} setUser={setUser} />
@@ -453,173 +555,177 @@ export default function MainContent({
       />
 
       <Body>
-        {videoData ? (
-          videoData.status === 'DONE' ? (
-            console.log("[MainContent] Rendering VideoDetail for videoData:", videoData) ||
-            <VideoDetail videoData={videoData} />
-          ) : (
-            <div className="w-full flex flex-col items-center justify-center">
-              <div className="w-full">
-                <h4 className="w-full text-center">
-                  {window.__t('header').split('\n').map((line, idx, arr) => (
-                    <span key={idx} className="text-white/90 italic text-lg">
-                      {line}
-                      {idx < arr.length - 1 && <br className="block md:hidden" />}
-                    </span>
-                  ))}
-                </h4>
+        {showFeedback ? (
+          <FeedbackPage onBack={onCloseFeedback} />
+        ) : shouldShowGlobalVideoLoading ? (
+          <div className="w-full flex flex-col items-center justify-center">
+            <div className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm">
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+                <p className="text-white text-sm">読み込み中...</p>
               </div>
-              <div className="w-full mt-[20px] [@media(max-height:650px)]:mt-[20px]">
-                <h4 className="w-full mb-[22px] text-center">
-                  {window.__t('uploadText').split('\n').map((line, idx, arr) => (
-                    <span key={idx} className="text-white text-2xl !font-bold font-cabin">
-                      {line}
-                      {idx < arr.length - 1 && <br className="block md:hidden" />}
-                    </span>
-                  ))}
-                </h4>
-                <div className="w-full max-w-md mx-auto">
-                  <div
-                    className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm hover:border-white/50 hover:bg-white/10"
-                    onDragOver={handleDragOver}
-                    onDrop={handleDrop}
-                  >
-                    <>
-                      <div className="flex flex-col items-center text-center space-y-6">
-                        <ProcessingSteps
-                          videoId={uploadedVideoId || selectedVideoId}
-                          initialStatus={videoData.status}
-                          videoTitle={videoData.original_filename}
-                          onProcessingComplete={handleProcessingComplete}
-                        />
-                      </div>
-                    </>
+            </div>
+          </div>
+        ) : shouldRenderProcessing ? (
+          <div className="w-full flex flex-col items-center justify-center">
+            <div className="w-full">
+              <h4 className="w-full text-center">
+                {window.__t('header').split('\n').map((line, idx, arr) => (
+                  <span key={idx} className="text-white/90 italic text-lg">
+                    {line}
+                    {idx < arr.length - 1 && <br className="block md:hidden" />}
+                  </span>
+                ))}
+              </h4>
+            </div>
+            <div className="w-full mt-[20px] [@media(max-height:650px)]:mt-[20px]">
+              <h4 className="w-full mb-[22px] text-center">
+                {window.__t('uploadText').split('\n').map((line, idx, arr) => (
+                  <span key={idx} className="text-white text-2xl !font-bold font-cabin">
+                    {line}
+                    {idx < arr.length - 1 && <br className="block md:hidden" />}
+                  </span>
+                ))}
+              </h4>
+              <div className="w-full max-w-xl mx-auto">
+                <div
+                  className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm hover:border-white/50 hover:bg-white/10"
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                >
+                  <div className="flex flex-col items-center text-center space-y-6">
+                    <ProcessingSteps
+                      videoId={activeProcessingVideoId}
+                      initialStatus={uploading ? "UPLOADING" : (videoData?.status || "NEW")}
+                      videoTitle={stableProcessingVideoTitle}
+                      externalProgress={uploading ? progress : undefined}
+                      onProcessingComplete={handleProcessingComplete}
+                    />
                   </div>
                 </div>
               </div>
             </div>
-          )
-        )
-        //  : loadingVideo ? (
-        //   <div className="w-full flex flex-col items-center justify-center">
-        //     <div className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm">
-        //       <div className="flex flex-col items-center text-center space-y-4">
-        //         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
-        //         <p className="text-white text-sm">読み込み中...</p>
-        //       </div>
-        //     </div>
-        //   </div>
-        // )
-         : children ?? (
-          <>
+          </div>
+        ) : videoData ? (
+          videoData.status === 'DONE' ? (
+            console.log("[MainContent] Rendering VideoDetail for videoData:", videoData) ||
+            <VideoDetail videoData={videoData} />
+          ) : videoData.status === 'ERROR' ? (
             <div className="w-full flex flex-col items-center justify-center">
-              <div className="w-full">
-                <h4 className="w-full text-center">
-                  {window.__t('header').split('\n').map((line, idx, arr) => (
-                    <span key={idx} className="text-white/90 italic text-lg">
-                      {line}
-                      {idx < arr.length - 1 && <br className="block md:hidden" />}
-                    </span>
-                  ))}
-                </h4>
+              <div className="w-full max-w-md mx-auto">
+                <div className="rounded-2xl p-8 border transition-all duration-200 border-red-300/30 bg-red-500/10 backdrop-blur-sm">
+                  <div className="flex flex-col items-center text-center space-y-3">
+                    <div className="text-4xl">⚠️</div>
+                    <p className="text-base font-semibold text-red-200">
+                      {window.__t('errorAnalysisMessage') || '解析中にエラーが発生しました。'}
+                    </p>
+                    <p className="text-sm text-gray-200">
+                      {videoData.original_filename || ''}
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div className="w-full mt-[20px] [@media(max-height:650px)]:mt-[20px]">
-                <h4 className="w-full mb-[22px] text-center">
-                  {window.__t('uploadText').split('\n').map((line, idx, arr) => (
-                    <span key={idx} className="text-white text-2xl !font-bold font-cabin">
-                      {line}
-                      {idx < arr.length - 1 && <br className="block md:hidden" />}
-                    </span>
-                  ))}
-                </h4>
-                <div className="w-full max-w-md mx-auto">
-                  <div
-                    className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm hover:border-white/50 hover:bg-white/10"
-                    onDragOver={handleDragOver}
-                    onDrop={handleDrop}
-                  >
-                    {uploading || uploadedVideoId ? (
-                      <>
-                        <div className="flex flex-col items-center text-center space-y-6">
-                          <ProcessingSteps
-                            videoId={uploadedVideoId}
-                            initialStatus={uploading ? "UPLOADING" : "NEW"}
-                            videoTitle={selectedFile?.name}
-                            externalProgress={uploading ? progress : undefined}
-                            onProcessingComplete={handleProcessingComplete}
-                          />
-                        </div>
-                      </>
-                    ) : selectedFile ? (
-                      <>
-                        <div className="flex flex-col items-center text-center space-y-6">
-                          <div className="text-4xl">🎬</div>
-                          <div>
-                            <p className="text-sm font-semibold">
-                              {selectedFile.name}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
-                            </p>
+            </div>
+          ) : null
+        )
+          : children ?? (
+            <>
+              <div className="w-full flex flex-col items-center justify-center">
+                <div className="w-full">
+                  <h4 className="w-full text-center">
+                    {window.__t('header').split('\n').map((line, idx, arr) => (
+                      <span key={idx} className="text-white/90 italic text-lg">
+                        {line}
+                        {idx < arr.length - 1 && <br className="block md:hidden" />}
+                      </span>
+                    ))}
+                  </h4>
+                </div>
+                <div className="w-full mt-[20px] [@media(max-height:650px)]:mt-[20px]">
+                  <h4 className="w-full mb-[22px] text-center">
+                    {window.__t('uploadText').split('\n').map((line, idx, arr) => (
+                      <span key={idx} className="text-white text-2xl !font-bold font-cabin">
+                        {line}
+                        {idx < arr.length - 1 && <br className="block md:hidden" />}
+                      </span>
+                    ))}
+                  </h4>
+                  <div className={`w-full ${(uploading || uploadedVideoId) ? 'max-w-xl' : 'max-w-md'} mx-auto`}>
+                    <div
+                      className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm hover:border-white/50 hover:bg-white/10"
+                      onDragOver={handleDragOver}
+                      onDrop={handleDrop}
+                    >
+                      {selectedFile ? (
+                        <>
+                          <div className="flex flex-col items-center text-center space-y-6">
+                            <div className="text-4xl">🎬</div>
+                            <div>
+                              <p className="text-sm font-semibold">
+                                {selectedFile.name}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={handleUpload}
+                                disabled={uploading}
+                                className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-md leading-[28px] cursor-pointer hover:bg-gray-100"
+                              >
+                                {window.__t('uploadButton')}
+                              </button>
+                              <button
+                                onClick={handleCancel}
+                                className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-md text-sm cursor-pointer hover:bg-gray-100"
+                              >
+                                {window.__t('cancelButton')}
+                              </button>
+                            </div>
                           </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={handleUpload}
-                              disabled={uploading}
-                              className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-md leading-[28px] cursor-pointer hover:bg-gray-100"
-                            >
-                              {window.__t('uploadButton')}
-                            </button>
-                            <button
-                              onClick={handleCancel}
-                              className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-md text-sm cursor-pointer hover:bg-gray-100"
-                            >
-                              {window.__t('cancelButton')}
-                            </button>
+                        </>
+                      ) : resumeUploadId ? (
+                        <>
+                          <div className="flex flex-col items-center text-center space-y-6">
+                            <div className="text-4xl">⏸️</div>
+                            <div>
+                              <p className="text-sm font-semibold">
+                                {window.__t('resumeUploadTitle') || 'Resumable Upload Found'}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {window.__t('resumeUploadDesc') || 'You have an incomplete upload. Continue uploading?'}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={handleResumeUpload}
+                                disabled={uploading || processingResume}
+                                className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-md leading-[28px] hover:bg-gray-100"
+                              >
+                                {window.__t('resumeButton') || 'Resume'}
+                              </button>
+                              <button
+                                onClick={handleSkipResume}
+                                disabled={uploading || processingResume}
+                                className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-md text-sm hover:bg-gray-100"
+                              >
+                                {window.__t('skipButton') || 'Skip'}
+                              </button>
+                            </div>
                           </div>
-                        </div>
-                      </>
-                    ) : resumeUploadId ? (
-                      <>
-                        <div className="flex flex-col items-center text-center space-y-6">
-                          <div className="text-4xl">⏸️</div>
-                          <div>
-                            <p className="text-sm font-semibold">
-                              {window.__t('resumeUploadTitle') || 'Resumable Upload Found'}
-                            </p>
-                            <p className="text-xs text-gray-500">
-                              {window.__t('resumeUploadDesc') || 'You have an incomplete upload. Continue uploading?'}
-                            </p>
-                          </div>
-                          <div className="flex gap-2">
-                            <button
-                              onClick={handleResumeUpload}
-                              disabled={uploading || processingResume}
-                              className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-md leading-[28px] hover:bg-gray-100"
-                            >
-                              {window.__t('resumeButton') || 'Resume'}
-                            </button>
-                            <button
-                              onClick={handleSkipResume}
-                              disabled={uploading || processingResume}
-                              className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-md text-sm hover:bg-gray-100"
-                            >
-                              {window.__t('skipButton') || 'Skip'}
-                            </button>
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex flex-col items-center text-center space-y-6">
-                          <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-lg">
-                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5e29ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-upload-icon lucide-upload w-8 h-8 text-primary"><path d="M12 3v12" /><path d="m17 8-5-5-5 5" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></svg>
-                          </div>
-                          <h5 className="hidden md:inline text-white text-lg font-cabin text-center">
-                            {window.__t('dragDropText')}
-                          </h5>
-                          <label
-                            className="
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex flex-col items-center text-center space-y-6">
+                            <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-lg">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5e29ff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-upload-icon lucide-upload w-8 h-8 text-primary"><path d="M12 3v12" /><path d="m17 8-5-5-5 5" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></svg>
+                            </div>
+                            <h5 className="hidden md:inline text-white text-lg font-cabin text-center">
+                              {window.__t('dragDropText')}
+                            </h5>
+                            <label
+                              className="
                         w-[143px] h-[41px]
                         flex items-center justify-center
                         bg-white text-[#7D01FF]
@@ -633,51 +739,51 @@ export default function MainContent({
                         select-none
                         hover:bg-gray-100
                       "
-                            onMouseDown={(e) => {
-                              if (!isLoggedIn || checkingResume) {
-                                e.preventDefault();
-                                if (!isLoggedIn) setShowLoginModal(true);
-                              }
-                            }}
-                          >
-                            {window.__t('selectFileText')}
-                            <input
-                              type="file"
-                              accept="video/*"
-                              disabled={!isLoggedIn || checkingResume}
                               onMouseDown={(e) => {
                                 if (!isLoggedIn || checkingResume) {
                                   e.preventDefault();
+                                  if (!isLoggedIn) setShowLoginModal(true);
                                 }
                               }}
-                              onClick={(e) => {
-                                if (!isLoggedIn || checkingResume) {
-                                  e.preventDefault();
-                                }
-                              }}
-                              onChange={handleFileSelect}
-                              className="hidden"
-                            />
-                          </label>
-                        </div>
-                      </>
-                    )}
-                    {message && (
-                      <p
-                        className={`text-xs text-center ${messageType === "success"
-                          ? "text-green-600"
-                          : "text-red-600"
-                          }`}
-                      >
-                        {message}
-                      </p>
-                    )}
+                            >
+                              {window.__t('selectFileText')}
+                              <input
+                                type="file"
+                                accept="video/*"
+                                disabled={!isLoggedIn || checkingResume}
+                                onMouseDown={(e) => {
+                                  if (!isLoggedIn || checkingResume) {
+                                    e.preventDefault();
+                                  }
+                                }}
+                                onClick={(e) => {
+                                  if (!isLoggedIn || checkingResume) {
+                                    e.preventDefault();
+                                  }
+                                }}
+                                onChange={handleFileSelect}
+                                className="hidden"
+                              />
+                            </label>
+                          </div>
+                        </>
+                      )}
+                      {message && (
+                        <p
+                          className={`text-xs text-center ${messageType === "success"
+                            ? "text-green-600"
+                            : "text-red-600"
+                            }`}
+                        >
+                          {message}
+                        </p>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            </div>
-          </>
-        )}
+            </>
+          )}
         {/* Hidden file input for resume functionality */}
         <input
           ref={resumeFileInputRef}
