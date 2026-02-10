@@ -223,7 +223,6 @@ export default function MainContent({
       await UploadService.clearUploadMetadata(resumeUploadId);
 
       setMessageType("success");
-      toast.success(window.__t('uploadSuccessMessage'));
       setSelectedFile(null);
       setResumeUploadId(null);
 
@@ -276,7 +275,6 @@ export default function MainContent({
       );
       localStorage.removeItem('resumeUploadFileName');
       setMessageType("success");
-      toast.success(window.__t('uploadSuccessMessage'));
       setSelectedFile(null);
       setResumeUploadId(null);
 
@@ -391,7 +389,7 @@ export default function MainContent({
           reports_2: r2,
           report3: Array.isArray(data.report3) ? data.report3 : (data.report3 ? [data.report3] : []),
         };
-        console.log("[MainContent] Setting videoData:", newVideoData);
+        
         setVideoData(newVideoData);
       } catch (err) {
         console.error('Failed to fetch video details:', err);
@@ -501,16 +499,18 @@ export default function MainContent({
               </div>
             </div>
           )
-        ) : loadingVideo ? (
-          <div className="w-full flex flex-col items-center justify-center">
-            <div className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm">
-              <div className="flex flex-col items-center text-center space-y-4">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
-                <p className="text-white text-sm">読み込み中...</p>
-              </div>
-            </div>
-          </div>
-        ) : children ?? (
+        )
+        //  : loadingVideo ? (
+        //   <div className="w-full flex flex-col items-center justify-center">
+        //     <div className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm">
+        //       <div className="flex flex-col items-center text-center space-y-4">
+        //         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
+        //         <p className="text-white text-sm">読み込み中...</p>
+        //       </div>
+        //     </div>
+        //   </div>
+        // )
+         : children ?? (
           <>
             <div className="w-full flex flex-col items-center justify-center">
               <div className="w-full">
