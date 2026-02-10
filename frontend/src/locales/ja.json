@@ -30,6 +30,7 @@
   "statusDone": "解析完了",
   "statusError": "エラーが発生しました",
   "statusProcessing": "処理中...",
+  "statusAnalyzing": "解析中...",
   "progressCompleteMessage": "解析が完了すると、自動的に結果が表示されます。",
   "errorAnalysisMessage": "動画の解析中にエラーが発生しました。もう一度アップロードしてください。",
   "clickToPreview": "クリックしてプレビュー",
@@ -94,5 +95,6 @@
   "feedbackSubmit": "送信する",
   "feedbackSuccess": "フィードバックを送信しました！",
   "feedbackError": "フィードバックの送信に失敗しました",
-  "feedbackEmptyError": "フィードバックを入力してください"
+  "feedbackEmptyError": "フィードバックを入力してください",
+  "analysisSectionHint": "アップロード完了後、解析ステップを実行中"
 }
