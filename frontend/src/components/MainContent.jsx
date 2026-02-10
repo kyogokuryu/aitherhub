@@ -461,13 +461,43 @@ export default function MainContent({
             <VideoDetail videoData={videoData} />
           ) : (
             <div className="w-full flex flex-col items-center justify-center">
-              <div className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm hover:border-white/50 hover:bg-white/10">
-                <ProcessingSteps
-                  videoId={uploadedVideoId || selectedVideoId}
-                  initialStatus={videoData.status}
-                  videoTitle={videoData.original_filename}
-                  onProcessingComplete={handleProcessingComplete}
-                />
+              <div className="w-full">
+                <h4 className="w-full text-center">
+                  {window.__t('header').split('\n').map((line, idx, arr) => (
+                    <span key={idx} className="text-white/90 italic text-lg">
+                      {line}
+                      {idx < arr.length - 1 && <br className="block md:hidden" />}
+                    </span>
+                  ))}
+                </h4>
+              </div>
+              <div className="w-full mt-[20px] [@media(max-height:650px)]:mt-[20px]">
+                <h4 className="w-full mb-[22px] text-center">
+                  {window.__t('uploadText').split('\n').map((line, idx, arr) => (
+                    <span key={idx} className="text-white text-2xl !font-bold font-cabin">
+                      {line}
+                      {idx < arr.length - 1 && <br className="block md:hidden" />}
+                    </span>
+                  ))}
+                </h4>
+                <div className="w-full max-w-md mx-auto">
+                  <div
+                    className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm hover:border-white/50 hover:bg-white/10"
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                  >
+                    <>
+                      <div className="flex flex-col items-center text-center space-y-6">
+                        <ProcessingSteps
+                          videoId={uploadedVideoId || selectedVideoId}
+                          initialStatus={videoData.status}
+                          videoTitle={videoData.original_filename}
+                          onProcessingComplete={handleProcessingComplete}
+                        />
+                      </div>
+                    </>
+                  </div>
+                </div>
               </div>
             </div>
           )

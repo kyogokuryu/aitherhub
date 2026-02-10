@@ -243,8 +243,7 @@ export default function ProcessingSteps({ videoId, initialStatus, videoTitle, on
   }, [videoId]); // Only depend on videoId, not initialStatus which changes frequently
   // Danh sách tất cả các steps bao gồm UPLOADING
   const processingSteps = [
-    { key: 'UPLOADING', label: window.__t('statusUploading') || 'ファイルをアップロードしています' },
-    { key: 'NEW', label: window.__t('statusNew') || '新規' },
+    { key: 'UPLOADING', label: window.__t('statusNew') || 'ファイルをアップロードしています' },
     { key: 'uploaded', label: window.__t('statusUploaded') || 'アップロード完了' },
     { key: 'STEP_0_EXTRACT_FRAMES', label: window.__t('statusStep0') || 'フレーム抽出中...' },
     { key: 'STEP_1_DETECT_PHASES', label: window.__t('statusStep1') || 'フェーズ検出中...' },
