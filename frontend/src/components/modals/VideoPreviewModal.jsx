@@ -1,6 +1,6 @@
-import { Dialog, DialogBackdrop, DialogPanel } from "@headlessui/react";
 import { useEffect, useRef, useState } from "react";
 import CloseSvg from "../../assets/icons/close.svg";
+import { Dialog, DialogContent, DialogDescription, DialogTitle, DialogClose } from "../ui/dialog";
 
 /**
  * Modal video preview that seeks to a specific start time.
@@ -229,86 +229,93 @@ export default function VideoPreviewModal({ open, onClose, videoUrl, timeStart =
   };
 
   return (
-    <Dialog open={open} onClose={onClose} className="relative z-50">
-      <DialogBackdrop className="fixed inset-0 bg-black/60 transition-opacity" />
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-3">
-        <DialogPanel className="relative w-full max-w-5xl rounded-xl overflow-hidden bg-black shadow-2xl">
+    <Dialog open={open} onOpenChange={(nextOpen) => (!nextOpen ? onClose?.() : null)}>
+      <DialogContent
+        overlayClassName="bg-black/60"
+        hideClose
+        className="w-[95vw] max-w-5xl p-0 bg-black border border-white/10 overflow-hidden"
+      >
+        <DialogTitle className="sr-only">Video preview</DialogTitle>
+        <DialogDescription className="sr-only">Video preview dialog</DialogDescription>
+
+        <DialogClose asChild>
           <button
             onClick={onClose}
             className="absolute right-3 top-3 z-10 w-10 h-10 rounded-full bg-white/80 hover:bg-white transition flex items-center justify-center cursor-pointer"
           >
             <img src={CloseSvg} alt="Close" className="w-4 h-4" />
           </button>
-          {videoUrl ? (
-            <div className="relative w-full h-full bg-black aspect-video">
-              <video
-                ref={videoRef}
-                key={videoUrl}
-                src={videoUrl}
-                controls={!playBlocked && !showCustomLoading && !isLoading}
-                autoPlay
-                muted
-                playsInline
-                poster="" // Disable default poster/loading
-                className="w-full h-full"
-                style={{ backgroundColor: 'black' }} // Prevent flash of white
-                onTimeUpdate={handleTimeUpdate}
-                onProgress={handleProgress}
-                onLoadStart={() => console.log('🎬 Video onLoadStart')}
-                onLoadedData={() => console.log('🎬 Video onLoadedData')}
-                onCanPlay={() => console.log('🎬 Video onCanPlay')}
-                onCanPlayThrough={() => console.log('🎬 Video onCanPlayThrough')}
-                onPlay={() => console.log('▶️ Video started playing')}
-                onPause={() => console.log('⏸️ Video paused')}
-                onError={(e) => console.error('❌ Video error:', e)}
-              />
+        </DialogClose>
 
-              {/* Loading Overlay */}
-              {isLoading && showCustomLoading && (
-                <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
-                  <div className="flex flex-col items-center gap-3">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-                    <div className="flex flex-col items-center gap-2">
-                      <p className="text-white text-sm">動画を準備中...</p>
-                      {bufferedProgress > 0 && (
-                        <div className="w-48 bg-gray-700 rounded-full h-1.5">
-                          <div
-                            className="bg-purple-500 h-1.5 rounded-full transition-all duration-300"
-                            style={{ width: `${bufferedProgress}%` }}
-                          />
-                        </div>
-                      )}
-                    </div>
+        {videoUrl ? (
+          <div className="relative w-full h-full bg-black aspect-video">
+            <video
+              ref={videoRef}
+              key={videoUrl}
+              src={videoUrl}
+              controls={!playBlocked && !showCustomLoading && !isLoading}
+              autoPlay
+              muted
+              playsInline
+              poster="" // Disable default poster/loading
+              className="w-full h-full"
+              style={{ backgroundColor: 'black' }} // Prevent flash of white
+              onTimeUpdate={handleTimeUpdate}
+              onProgress={handleProgress}
+              onLoadStart={() => console.log('🎬 Video onLoadStart')}
+              onLoadedData={() => console.log('🎬 Video onLoadedData')}
+              onCanPlay={() => console.log('🎬 Video onCanPlay')}
+              onCanPlayThrough={() => console.log('🎬 Video onCanPlayThrough')}
+              onPlay={() => console.log('▶️ Video started playing')}
+              onPause={() => console.log('⏸️ Video paused')}
+              onError={(e) => console.error('❌ Video error:', e)}
+            />
+
+            {/* Loading Overlay */}
+            {isLoading && showCustomLoading && (
+              <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
+                <div className="flex flex-col items-center gap-3">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+                  <div className="flex flex-col items-center gap-2">
+                    <p className="text-white text-sm">動画を準備中...</p>
+                    {bufferedProgress > 0 && (
+                      <div className="w-48 bg-gray-700 rounded-full h-1.5">
+                        <div
+                          className="bg-purple-500 h-1.5 rounded-full transition-all duration-300"
+                          style={{ width: `${bufferedProgress}%` }}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
-              )}
+              </div>
+            )}
 
-              {/* Play Blocked Overlay */}
-              {playBlocked && !isLoading && (
-                <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
-                  <div className="flex flex-col items-center gap-4">
-                    <div className="text-white text-center">
-                      <p className="text-lg mb-2">再生するにはクリックしてください</p>
-                      <p className="text-sm text-gray-300">ブラウザの自動再生ポリシーにより停止されました</p>
-                    </div>
-                    <button
-                      onClick={handleManualPlay}
-                      className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-[background-color] flex items-center gap-2"
-                    >
-                      <span>▶️</span>
-                      再生する
-                    </button>
+            {/* Play Blocked Overlay */}
+            {playBlocked && !isLoading && (
+              <div className="absolute inset-0 bg-black/70 flex items-center justify-center">
+                <div className="flex flex-col items-center gap-4">
+                  <div className="text-white text-center">
+                    <p className="text-lg mb-2">再生するにはクリックしてください</p>
+                    <p className="text-sm text-gray-300">ブラウザの自動再生ポリシーにより停止されました</p>
                   </div>
+                  <button
+                    onClick={handleManualPlay}
+                    className="px-6 py-3 bg-purple-600 hover:bg-purple-700 text-white rounded-lg font-medium transition-[background-color] flex items-center gap-2"
+                  >
+                    <span>▶️</span>
+                    再生する
+                  </button>
                 </div>
-              )}
-            </div>
-          ) : (
-            <div className="w-full aspect-video flex items-center justify-center text-white/80">
-              プレビューを読み込み中...
-            </div>
-          )}
-        </DialogPanel>
-      </div>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="w-full aspect-video flex items-center justify-center text-white/80">
+            プレビューを読み込み中...
+          </div>
+        )}
+      </DialogContent>
     </Dialog>
   );
 }

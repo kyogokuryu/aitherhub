@@ -116,7 +116,7 @@ export default function MainLayout() {
     <div className="min-h-screen bg-gray-100 flex justify-center">
       <div className="w-full flex">
 
-        <aside className="hidden xl:block w-1/5 max-w-[350px] bg-white text-black">
+        <aside className="hidden xl:block w-[320px] max-w-[320px] min-w-[320px] bg-white text-black">
           <Sidebar {...sidebarProps} />
         </aside>
 
@@ -124,8 +124,7 @@ export default function MainLayout() {
           <Sidebar {...sidebarProps} />
         </div>
 
-        <main className="w-full md:flex-1 bg-[linear-gradient(180deg,rgba(69,0,255,1),rgba(155,0,255,1))]
- text-white">
+        <main className="w-full md:flex-1 gradient-liveboost text-white">
           <MainContent {...mainContentProps}>
           </MainContent>
         </main>

@@ -1,9 +1,39 @@
 @import url('https://fonts.googleapis.com/css2?family=Cabin:ital,wght@0,400..700;1,400..700&display=swap');
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
+@plugin "tailwindcss-animate";
 
 @theme {
   --font-cabin: "Cabin", "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Hiragino Sans", "Yu Gothic", "Meiryo", system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* shadcn-style tokens (Tailwind v4 CSS-first) */
+  --radius: 0.75rem;
+
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
 }
 
 :root {
@@ -15,12 +45,125 @@
   color: rgba(255, 255, 255, 0.87);
   background-color: #242424;
 
+  /* shadcn CSS variables (light) */
+  --background: 0 0% 100%;
+  --foreground: 222 84% 5%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 84% 5%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 84% 5%;
+
+  --primary: 255 100% 58%;
+  --primary-foreground: 0 0% 100%;
+
+  --secondary: 210 40% 96%;
+  --secondary-foreground: 222 47% 11%;
+
+  --muted: 220 14% 96%;
+  --muted-foreground: 220 9% 46%;
+
+  --accent: 142 76% 36%;
+  --accent-foreground: 0 0% 100%;
+
+  --destructive: 45 93% 47%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --ring: 255 100% 58%;
+
+  --radius: 0.5rem;
+
+  /* Liveboost custom tokens */
+  --liveboost-purple-start: 255 100% 58%;
+  --liveboost-purple-end: 271 90% 55%;
+  --liveboost-card-border: 0 0% 100% / 0.35;
+  --liveboost-sidebar-bg: 0 0% 100%;
+  --liveboost-sidebar-text: 222 47% 11%;
+  --liveboost-sidebar-text-muted: 220 9% 46%;
+
+  --sidebar-background: 0 0% 98%;
+  --sidebar-foreground: 240 5% 26%;
+  --sidebar-primary: 240 6% 10%;
+  --sidebar-primary-foreground: 0 0% 98%;
+  --sidebar-accent: 240 5% 96%;
+  --sidebar-accent-foreground: 240 6% 10%;
+  --sidebar-border: 220 13% 91%;
+  --sidebar-ring: 217 91% 60%;
+
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  font-feature-settings: "kern" 1;
+  font-feature-settings: "kern"1;
   font-kerning: normal;
+}
+
+/* Optional dark tokens (enable by adding class="dark" to html/body container) */
+.dark {
+  --background: 222 84% 5%;
+  --foreground: 210 40% 98%;
+
+  --card: 222 84% 5%;
+  --card-foreground: 210 40% 98%;
+
+  --popover: 222 84% 5%;
+  --popover-foreground: 210 40% 98%;
+
+  --primary: 255 100% 58%;
+  --primary-foreground: 222 47% 11%;
+
+  --secondary: 217 33% 18%;
+  --secondary-foreground: 210 40% 98%;
+
+  --muted: 217 33% 18%;
+  --muted-foreground: 215 20% 65%;
+
+  --accent: 265 100% 55%;
+  --accent-foreground: 210 40% 98%;
+
+  --destructive: 0 63% 31%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 217 33% 18%;
+  --input: 217 33% 18%;
+  --ring: 213 27% 84%;
+
+  --liveboost-purple-start: 255 100% 58%;
+  --liveboost-purple-end: 271 90% 55%;
+  --liveboost-card-border: 0 0% 100% / 0.35;
+  --liveboost-sidebar-bg: 222 84% 5%;
+  --liveboost-sidebar-text: 210 40% 98%;
+  --liveboost-sidebar-text-muted: 215 20% 65%;
+
+  --sidebar-background: 240 6% 10%;
+  --sidebar-foreground: 240 5% 96%;
+  --sidebar-primary: 224 76% 48%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 240 4% 16%;
+  --sidebar-accent-foreground: 240 5% 96%;
+  --sidebar-border: 240 4% 16%;
+  --sidebar-ring: 217 91% 60%;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", "Yu Gothic", sans-serif;
+  }
+}
+
+@layer utilities {
+  .gradient-liveboost {
+    background: linear-gradient(135deg, hsl(var(--liveboost-purple-start)) 0%, hsl(var(--liveboost-purple-end)) 100%);
+  }
+
 }
 
 a {
@@ -28,6 +171,7 @@ a {
   color: #646cff;
   text-decoration: inherit;
 }
+
 a:hover {
   color: #535bf2;
 }
@@ -38,7 +182,7 @@ body {
   place-items: center;
   min-width: 320px;
   min-height: 100vh;
-  background: #ccc; 
+  background: #ccc;
 }
 
 h1 {
@@ -71,13 +215,16 @@ h1 {
     color: #213547;
     background-color: #ffffff;
   }
+
   a:hover {
     color: #747bff;
   }
+
   .btn-default {
     background-color: #f9f9f9;
   }
-} 
+}
+
 .bg-90 {
   border-radius: 50px;
   border: 1px solid #fff;
@@ -90,7 +237,7 @@ h1 {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   text-rendering: optimizeLegibility;
-  font-feature-settings: "kern" 1;
+  font-feature-settings: "kern"1;
 }
 
 /* Ensure font-weight classes work with Japanese text */

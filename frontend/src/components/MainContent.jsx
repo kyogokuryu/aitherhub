@@ -2,7 +2,7 @@ import { Header, Body, Footer } from "./main";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import UploadService from "../base/services/uploadService";
 import VideoService from "../base/services/videoService";
-import { toast } from "react-toastify";
+import { toast } from "../hooks/use-toast";
 import LoginModal from "./modals/LoginModal";
 import ProcessingSteps from "./ProcessingSteps";
 import VideoDetail from "./VideoDetail";
@@ -549,15 +549,17 @@ export default function MainContent({
 
       <LoginModal
         open={showLoginModal}
-        onClose={() => {
-          setShowLoginModal(false);
-          try {
-            const storedUser = localStorage.getItem("user");
-            if (storedUser && setUser) {
-              setUser(JSON.parse(storedUser));
+        onOpenChange={(nextOpen) => {
+          setShowLoginModal(nextOpen);
+          if (!nextOpen) {
+            try {
+              const storedUser = localStorage.getItem("user");
+              if (storedUser && setUser) {
+                setUser(JSON.parse(storedUser));
+              }
+            } catch {
+              // ignore JSON/localStorage errors
             }
-          } catch {
-            // ignore JSON/localStorage errors
           }
         }}
         onSwitchToRegister={() => setShowLoginModal(false)}

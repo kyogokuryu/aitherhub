@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { toast } from "react-toastify";
+import { toast } from "../../hooks/use-toast";
 import AuthService from "../../base/services/userService";
-import { PrimaryButton } from "../../components/buttons";
+import { Button } from "../../components/ui/Button";
 import { VALIDATION_MESSAGES, SUCCESS_MESSAGES, mapServerErrorToJapanese } from "../../constants/authConstants";
 
 export default function Login({ onSuccess, onSwitchToRegister }) {
@@ -97,13 +97,13 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
   return (
     <form onSubmit={handleSubmit} className="flex flex-col items-center justify-center space-y-6">
       <h2 className="pt-[25px] pb-[20px] font-cabin font-medium text-[30px] leading-[30px] h-[30px] text-center flex items-center justify-center text-black md:pt-[50px] md:text-[40px] md:leading-[30px] md:h-[30px]">
-{window.__t('login')}
+        {window.__t('login')}
       </h2>
 
       <div className="flex flex-col max-w-full top-[126px] items-start space-y-1 w-[340px] h-[250px] md:w-[400px]">
         <div className="flex flex-col items-start w-full mb-[20px]">
           <label className="font-cabin font-bold text-[14px] text-black mb-[7px]">
-{window.__t('emailAddress')}
+            {window.__t('emailAddress')}
           </label>
           <input
             type="email"
@@ -124,7 +124,7 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
 
         <div className="flex flex-col items-start w-full mb-[30px]">
           <label className="font-cabin font-bold text-[14px] text-black mb-[7px]">
-{window.__t('password')}
+            {window.__t('password')}
           </label>
           <input
             type="password"
@@ -152,13 +152,13 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
                 rel="noopener noreferrer"
                 style={{ color: "#000", textDecoration: "underline" }}
               >
-{window.__t('resetPassword')}
+                {window.__t('resetPassword')}
               </a>
             </span>
           </div>
 
           <div className="text-[9px] text-center text-gray-600">
-{window.__t('firstTimeUser')} 
+            {window.__t('firstTimeUser')}
             <span className="">
               <a
                 href="#"
@@ -172,21 +172,23 @@ export default function Login({ onSuccess, onSwitchToRegister }) {
                   cursor: "pointer",
                 }}
               >
-{window.__t('registerHere')}
+                {window.__t('registerHere')}
               </a>
             </span>
           </div>
         </div>
       </div>
 
-      <PrimaryButton 
+      {/* <PrimaryButton
         type="submit"
-        onClick={handleLogin} 
+        onClick={handleLogin}
         disabled={isLoading}
         className="mb-[25px] md:mb-[50px]"
       >
         {isLoading ? window.__t('loggingIn') : window.__t('login')}
-      </PrimaryButton>
+      </PrimaryButton> */}
+      <Button className="min-w-[125px]" onClick={handleLogin}
+        disabled={isLoading}>{isLoading ? window.__t('loggingIn') : window.__t('login')}</Button>
     </form>
   );
 }

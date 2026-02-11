@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { toast } from "react-toastify";
+import { toast } from "../../hooks/use-toast";
 import AuthService from "../../base/services/userService";
-import { PrimaryButton, SecondaryButton } from "../../components/buttons";
+import { Button } from "../../components/ui/Button";
 import { VALIDATION_MESSAGES, SUCCESS_MESSAGES, mapServerErrorToJapanese } from "../../constants/authConstants";
 
 export default function Register({ onSuccess }) {
@@ -263,23 +263,11 @@ export default function Register({ onSuccess }) {
       </div>
 
       <div className="flex flex-col md:flex-row items-center gap-4 w-full mt-[5px] align-center md:justify-center md:gap-[30px] md:mt-0">
-        <PrimaryButton
-          type="submit"
-          onClick={handleRegister}
-          disabled={isLoading}
-          rounded="rounded-[5px]"
-        >
-          {isLoading ? window.__t('registering') : window.__t('registerButton')}
-        </PrimaryButton>
-
-        <SecondaryButton
-          type="button"
-          onClick={() => {
-            if (onSuccess) onSuccess();
-          }}
-        >
-          キャンセル
-        </SecondaryButton>
+        <Button className="min-w-[125px]" onClick={handleRegister}
+          disabled={isLoading}>{isLoading ? window.__t('registering') : window.__t('registerButton')}</Button>
+        <Button variant="outline" onClick={() => {
+          if (onSuccess) onSuccess();
+        }}>{window.__t('cancelButton')}</Button>
       </div>
     </form>
   );
