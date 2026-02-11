@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import logo from "../assets/logo/logo.svg";
 import searchMobile from "../assets/icons/searchmobile.png";
@@ -13,6 +13,8 @@ import "../assets/css/sidebar.css";
 import ForgotPasswordModal from "./modals/ForgotPasswordModal";
 import AuthService from "../base/services/userService";
 import VideoService from "../base/services/videoService";
+
+import { X } from "lucide-react";
 
 export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAnalysis, onShowFeedback, refreshKey, selectedVideo, showFeedback }) {
   const sidebarRef = useRef(null);
@@ -31,7 +33,7 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
     }
   }, [selectedVideo?.id]);
 
-  // ===== SP search =====
+  // ===== sidebar search (PC + SP) =====
   const [searchValue, setSearchValue] = useState("");
   const [showBackButton, setShowBackButton] = useState(false);
 
@@ -77,6 +79,16 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
 
     fetchVideos();
   }, [effectiveUser?.isLoggedIn, effectiveUser?.id, effectiveUser?.email, refreshKey]);
+
+  const filteredVideos = useMemo(() => {
+    const query = searchValue.trim().toLowerCase();
+    if (!query) return videos;
+    return (videos || []).filter((video) => {
+      const name = (video?.original_filename ?? "").toString().toLowerCase();
+      const id = (video?.id ?? "").toString().toLowerCase();
+      return name.includes(query) || id.includes(query);
+    });
+  }, [videos, searchValue]);
 
   const handleVideoClick = (video) => {
     setSelectedVideoId(video.id);
@@ -129,7 +141,7 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
       <aside
         ref={sidebarRef}
         className={`fixed md:static top-0 left-0 z-50
-        w-full md:min-w-[260px] bg-white md:h-screen
+        w-full md:min-w-[260px] md:w-[320px] bg-white md:h-screen
         bottom-0
         flex flex-col 
         transition-transform duration-300 ease-in-out
@@ -141,7 +153,7 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
           <div className="flex items-center">
             <img src={logo} className="w-[37px] h-[35px]" />
             <span className="font-semibold text-[22px] ml-2 bg-[linear-gradient(180deg,rgba(69,0,255,1),rgba(155,0,255,1))] bg-clip-text text-transparent">
-              Liveboost AI
+              Aitherhub
             </span>
           </div>
           <div className="mt-[28px]">
@@ -165,9 +177,18 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
               <span className={`text-sm transition-colors duration-200 ease-out ${!showFeedback && !selectedVideo ? "text-purple-700 font-medium" : "text-[#020817]"
                 }`}>{window.__t('newAnalysis')}</span>
             </div>
-            <div className="flex items-center gap-2 p-2 px-4 mt-2 border border-gray-200 rounded-md cursor-pointer hover:text-gray-400 hover:bg-gray-100 transition-all duration-200 ease-out">
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#213547" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search-icon lucide-search transition-colors duration-200 ease-out"><path d="m21 21-4.34-4.34" /><circle cx="11" cy="11" r="8" /></svg>
-              <input type="text" placeholder={window.__t('searchChat')} className="w-full outline-none text-sm text-[#213547] transition-colors duration-200 ease-out placeholder:text-[#020817] focus:placeholder:text-gray-400" />
+            <div className="relative">
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-search absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground"><path d="m21 21-4.34-4.34" /><circle cx="11" cy="11" r="8" /></svg>
+              <input
+                type="text"
+                value={searchValue}
+                onChange={(e) => setSearchValue(e.target.value)}
+                placeholder={window.__t('searchChat')}
+                className="flex h-10 w-full rounded-md mt-2 border px-8 py-2 text-base ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium file:text-foreground placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm bg-muted/50 border-border"
+              />
+              {searchValue.trim() && (
+                <X className="w-4 h-4 text-gray-500 hover:text-gray-700 cursor-pointer absolute right-3 top-1/2 -translate-y-1/2" onClick={() => setSearchValue("")} />
+              )}
             </div>
             <div
               role="button"
@@ -184,26 +205,26 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
                   }
                 }
               }}
-              className={`flex items-center gap-2 p-2 px-4 mt-2 border rounded-md cursor-pointer transition-all duration-200 ease-out ${showFeedback
+              className={`flex items-center gap-2 p-2 px-4 mt-2 rounded-md cursor-pointer transition-all duration-200 ease-out ${showFeedback
                 ? "border-purple-300 bg-purple-50 text-purple-700"
                 : "border-gray-200 hover:bg-gray-100"
                 }`}
             >
-              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={showFeedback ? "#7c3aed" : "#213547"} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-message-square-icon lucide-message-square transition-colors duration-200 ease-out"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" /></svg>
-              <span className={`text-sm transition-colors duration-200 ease-out ${showFeedback ? "text-purple-700 font-medium" : "text-[#020817]"
+              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={showFeedback ? "#7c3aed" : "#6b7280"} strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-message-square-icon lucide-message-square transition-colors duration-200 ease-out"><path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" /></svg>
+              <span className={`text-sm transition-colors duration-200 ease-out ${showFeedback ? "text-purple-700 font-medium" : "text-muted-foreground "
                 }`}>{window.__t('feedback')}</span>
             </div>
           </div>
         </div>
 
         {/* ================= SP ================= */}
-        <div className="md:hidden mt-[22px] px-4 flex-shrink-0">
+        <div className="md:hidden mt-[22px] px-4 shrink-0">
           <div className="flex justify-between items-center ml-[50px] mb-[20px] gap-2">
             <div className="relative w-full max-w-[270px]">
-              <div className="relative p-[1px] rounded-[5px] bg-linear-to-b from-[#4500FF] via-[#6A00FF] to-[#9B00FF]">
+              <div className="relative p-px rounded-[5px] bg-linear-to-b from-[#4500FF] via-[#6A00FF] to-[#9B00FF]">
                 <img src={searchSp} className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" />
                 <input
-                  placeholder="検索"
+                  placeholder={window.__t("searchChat")}
                   value={searchValue}
                   onChange={(e) => setSearchValue(e.target.value)}
                   className="
@@ -237,7 +258,7 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
               <div className="flex items-center mb-5 mt-1">
                 <img src={logo} className="w-10 h-10 ml-2" />
                 <span className="ml-2 font-semibold text-[24px] bg-[linear-gradient(180deg,rgba(69,0,255,1),rgba(155,0,255,1))] bg-clip-text text-transparent">
-                  Liveboost AI
+                  Aitherhub
                 </span>
               </div>
 
@@ -253,7 +274,7 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
 
         {/* ================= COMMON ================= */}
         <div className="mt-6 md:space-y-3 flex flex-col flex-1 min-h-0 pl-4 pr-0 md:px-0">
-          <span className="block text-[#9E9E9E] text-left flex-shrink-0 text-sm">{window.__t('analysisHistory')}</span>
+          <span className="block text-[#9E9E9E] text-left shrink-0 text-sm">{window.__t('analysisHistory')}</span>
 
           {effectiveUser?.isLoggedIn && (
             <>
@@ -262,14 +283,14 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
                   <div className="flex items-center justify-center py-4">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-gray-400"></div>
                   </div>
-                ) : videos.length > 0 ? (
+                ) : filteredVideos.length > 0 ? (
                   <div className="flex flex-col items-start gap-2 flex-1 min-h-0 overflow-y-auto scrollbar-custom">
                     {loadingVideos && (
                       <div className="w-full flex justify-center py-1">
                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-gray-400"></div>
                       </div>
                     )}
-                    {videos.map((video) => (
+                    {filteredVideos.map((video) => (
                       <div className={`w-full min-h-10 flex items-center gap-2 font-semibold cursor-pointer text-black p-2 rounded-lg text-left transition-all duration-200 ease-out ${selectedVideoId === video.id
                         ? "bg-purple-100 text-purple-700"
                         : "hover:text-gray-400 hover:bg-gray-100"
@@ -286,7 +307,9 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
                   </div>
                 ) : (
                   <div className="text-center text-gray-400 text-sm py-4">
-                    {window.__t('noVideos')}
+                    {videos.length > 0 && searchValue.trim()
+                      ? (window.__t("noSearchResults") || "No results")
+                      : window.__t("noVideos")}
                   </div>
                 )}
               </div>
@@ -296,7 +319,7 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
                 onClick={toggleDropdown}
                 className="ml-[7px] w-[225px] h-[45px] mb-[25px] mt-auto
                 md:hidden rounded-[50px] border border-[#B5B5B5]
-                flex items-center justify-center shadow cursor-pointer flex-shrink-0"
+                flex items-center justify-center shadow cursor-pointer shrink-0"
               >
                 <span className="font-bold text-sm max-w-[180px] truncate inline-block align-middle text-gray-700">
                   {effectiveUser.email}
@@ -366,7 +389,7 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
       {/* ===== MODAL ===== */}
       <ForgotPasswordModal
         open={openForgotPassword}
-        onClose={() => setOpenForgotPassword(false)}
+        onOpenChange={setOpenForgotPassword}
       />
     </>
   );

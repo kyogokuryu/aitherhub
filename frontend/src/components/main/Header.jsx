@@ -1,13 +1,20 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import MenuIcon from "../../assets/icons/menu.png";
-import MyAccount from "../../assets/icons/user-profile-icon-df.png";
-import PasswordIcon from "../../assets/icons/password-icon.svg";
-import Signout from "../../assets/icons/signout-icon-df.png";
 import LoginModal from "../modals/LoginModal";
 import RegisterModal from "../modals/RegisterModal";
 import ForgotPasswordModal from "../modals/ForgotPasswordModal";
 import AuthService from "../../base/services/userService";
 import { BasicButton } from "../buttons";
+import { Button } from "../ui/Button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "../ui/dropdown-menu";
+import { ChevronDown, User, Settings, LogOut } from "lucide-react";
 
 export default function Header({
   onOpenSidebar,
@@ -17,8 +24,6 @@ export default function Header({
   const [openLogin, setOpenLogin] = useState(false);
   const [openRegister, setOpenRegister] = useState(false);
   const [localUser, setLocalUser] = useState(null);
-  const [openDropdown, setOpenDropdown] = useState(false);
-  const dropdownRef = useRef(null);
 
   useEffect(() => {
     if (propUser) return;
@@ -57,24 +62,38 @@ export default function Header({
     };
   }, [setPropUser]);
 
-  useEffect(() => {
-    const handleClickOutside = (e) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
-        setOpenDropdown(false);
-      }
-    };
-
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
 
   const user = propUser ?? localUser;
   const setUser = setPropUser ?? setLocalUser;
   const [openForgotPassword, setOpenForgotPassword] = useState(false);
 
+  const handleLoginOpenChange = (nextOpen) => {
+    setOpenLogin(nextOpen);
+    if (!nextOpen) {
+      const storedUser = localStorage.getItem("user");
+      if (storedUser) setUser(JSON.parse(storedUser));
+    }
+  };
+
+  const handleRegisterOpenChange = (nextOpen) => {
+    setOpenRegister(nextOpen);
+    if (!nextOpen) {
+      const storedUser = localStorage.getItem("user");
+      if (storedUser) setUser(JSON.parse(storedUser));
+    }
+  };
+
+  const handleForgotPasswordOpenChange = (nextOpen) => {
+    setOpenForgotPassword(nextOpen);
+    if (!nextOpen) {
+      const storedUser = localStorage.getItem("user");
+      if (storedUser) setUser(JSON.parse(storedUser));
+    }
+  };
+
   return (
     <>
-      <header className="h-[75px] px-[13px] py-[22px] md:px-5 flex items-center justify-between">
+      <header className=" px-6 py-4 md:px-5 flex items-center justify-between">
         <div className="flex items-center gap-[16px]">
           <img
             src={MenuIcon}
@@ -83,125 +102,91 @@ export default function Header({
             className="block md:hidden w-[19px] h-[16px]"
           />
           <span className="text-xl font-semibold text-white">
-            Liveboost AI
+            Aitherhub
           </span>
         </div>
 
         {/* RIGHT SIDE */}
-        <div
-          className={`flex items-center gap-[10px] justify-center h-[35px] rounded-[50px] ${
-            user?.isLoggedIn && "bg-white"
-          }`}
-        >
+        <div className="flex items-center gap-2 justify-center h-[35px] rounded-[50px]">
           {user?.isLoggedIn ? (
-            <div className="relative px-2" ref={dropdownRef}>
-              <span
-                className="font-cabin text-[14px] text-black cursor-pointer select-none max-w-[160px] truncate inline-block align-middle"
-                onClick={() => setOpenDropdown(!openDropdown)}
-              >
-                {user.email}
-              </span>
-
-              {openDropdown && (
-                <div className="absolute right-0 top-[40px] w-[196px] bg-white border rounded-md shadow-md z-50">
-                  <ul className="flex flex-col text-[16px] text-black">
-                    <li className="text-sm text-gray-700 px-4 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2">
-                      <img
-                        src={MyAccount}
-                        alt="My Account"
-                        className="w-[16px] h-[16px]"
-                      />
-{window.__t('myAccount')}
-                    </li>
-
-                    <li
-                      className="text-sm text-gray-700 px-4 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2"
-                      onClick={() => {
-                        setOpenDropdown(false);
-                        setOpenForgotPassword(true);
-                      }}
-                    >
-                      <img
-                        src={PasswordIcon}
-                        alt="Password"
-                        className="w-[16px] h-[16px]"
-                      />
-{window.__t('changePassword')}
-                    </li>
-
-                    <li
-                      className="text-sm px-4 py-2 hover:bg-gray-100 cursor-pointer flex items-center gap-2 text-red-500"
-                      onClick={() => {
-                        setOpenDropdown(false);
-                        AuthService.logout();
-                        setUser({ isLoggedIn: false });
-                        window.location.reload();
-                      }}
-                    >
-                      <img
-                        src={Signout}
-                        alt="Signout"
-                        className="w-[16px] h-[16px]"
-                      />
-{window.__t('logout')}
-                    </li>
-                  </ul>
-                </div>
-              )}
-            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="text-white/80 hover:text-white hover:bg-white/10 gap-1 max-w-[200px]"
+                >
+                  <span className="truncate">{user.email}</span>
+                  <ChevronDown className="w-3.5 h-3.5" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuLabel>{window.__t('myAccount')}</DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem>
+                  <User className="w-4 h-4" />
+                  {window.__t('myAccount')}
+                </DropdownMenuItem>
+                <ForgotPasswordModal
+                  open={openForgotPassword}
+                  onOpenChange={handleForgotPasswordOpenChange}
+                  trigger={
+                    <DropdownMenuItem>
+                      <Settings className="w-4 h-4" />
+                      {window.__t("changePassword")}
+                    </DropdownMenuItem>
+                  }
+                />
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  className="text-red-500 focus:text-red-600"
+                  onClick={() => {
+                    AuthService.logout();
+                    setUser({ isLoggedIn: false });
+                    window.location.reload();
+                  }}
+                >
+                  <LogOut className="w-4 h-4" />
+                  {window.__t('logout')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           ) : (
             <>
-              <BasicButton
-                onClick={() => setOpenLogin(true)}
-                variant="secondary"
-              >
-{window.__t('login')}
-              </BasicButton>
-              <BasicButton
-                onClick={() => setOpenRegister(true)}
-                variant="primary"
-              >
-{window.__t('register')}
-              </BasicButton>
+              <LoginModal
+                open={openLogin}
+                onOpenChange={handleLoginOpenChange}
+                onSwitchToRegister={() => {
+                  setOpenLogin(false);
+                  setOpenRegister(true);
+                }}
+                trigger={
+                  <BasicButton variant="secondary">
+                    {window.__t("login")}
+                  </BasicButton>
+                }
+              />
+              <RegisterModal
+                open={openRegister}
+                onOpenChange={handleRegisterOpenChange}
+                onSwitchToLogin={() => {
+                  setOpenRegister(false);
+                  setOpenLogin(true);
+                }}
+                trigger={
+                  <BasicButton variant="primary">
+                    {window.__t("register")}
+                  </BasicButton>
+                }
+              />
             </>
           )}
         </div>
       </header>
 
-      <LoginModal
-        open={openLogin}
-        onClose={() => {
-          setOpenLogin(false);
-          const storedUser = localStorage.getItem("user");
-          if (storedUser) setUser(JSON.parse(storedUser));
-        }}
-        onSwitchToRegister={() => {
-          setOpenLogin(false);
-          setOpenRegister(true);
-        }}
-      />
-
-      <RegisterModal
-        open={openRegister}
-        onClose={() => {
-          setOpenRegister(false);
-          const storedUser = localStorage.getItem("user");
-          if (storedUser) setUser(JSON.parse(storedUser));
-        }}
-        onSwitchToLogin={() => {
-          setOpenRegister(false);
-          setOpenLogin(true);
-        }}
-      />
-
       <ForgotPasswordModal
         open={openForgotPassword}
-        onClose={() => {
-          setOpenForgotPassword(false);
-          // refresh user state after password change/cancel
-          const storedUser = localStorage.getItem("user");
-          if (storedUser) setUser(JSON.parse(storedUser));
-        }}
+        onOpenChange={handleForgotPasswordOpenChange}
       />
     </>
   );

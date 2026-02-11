@@ -413,8 +413,8 @@ export default function VideoDetail({ videoData }) {
         {/* SCROLL AREA */}
         <div className="flex-1 overflow-y-auto scrollbar-custom text-left md:mb-0">
           <div className="w-full max-w-4xl mt-6 mx-auto">
-            <div className="rounded-2xl p-6 bg-white/5 border border-white/20">
-              <div className="flex items-center justify-between">
+            <div className="rounded-2xl bg-white/10 border border-white/20">
+              <div onClick={() => setReportCollapsed((s) => !s)} className="flex items-center justify-between p-5 cursor-pointer hover:bg-white/5 transform transition-all duration-200">
                 <div className="flex items-center gap-4">
                   <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-target w-5 h-5 text-white"><circle cx="12" cy="12" r="10"></circle><circle cx="12" cy="12" r="6"></circle><circle cx="12" cy="12" r="2"></circle></svg>
                   <div>
@@ -425,7 +425,6 @@ export default function VideoDetail({ videoData }) {
 
                 <button
                   type="button"
-                  onClick={() => setReportCollapsed((s) => !s)}
                   aria-expanded={!reportCollapsed}
                   aria-label={reportCollapsed ? (window.__t ? window.__t('expand') : 'expand') : (window.__t ? window.__t('collapse') : 'collapse')}
                   className="text-white/70 p-2 rounded focus:outline-none transition-colors"
@@ -437,176 +436,176 @@ export default function VideoDetail({ videoData }) {
               </div>
               {/* Inner panels: tag + summary + suggestion (matches screenshot) */}
               {!reportCollapsed && (
-              <div className="mt-6 flex flex-col gap-4">
-                {videoData?.report3 && Array.isArray(videoData.report3) && videoData.report3.length > 0 && videoData.report3.map((r, i) => (
-                  <div key={`report3-${i}`} className="rounded-xl p-6 bg-white/5 border border-white/10">
-                    <div className="flex items-start gap-4">
-                      <div className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-orange-400/20 text-orange-400">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-flame w-3.5 h-3.5"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>
-                        <span>高インパクト</span>
-                      </div>
-                    </div>
-
-                    <div className="mt-4 grid grid-cols-1 gap-4">
+                <div className="px-5 flex flex-col gap-4">
+                  {videoData?.report3 && Array.isArray(videoData.report3) && videoData.report3.length > 0 && videoData.report3.map((r, i) => (
+                    <div key={`report3-${i}`} className="rounded-xl p-6 bg-white/10 border border-white/10">
                       <div className="flex items-start gap-4">
-                        <div className="text-cyan-300 mt-1">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-file-text w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-full text-xs font-medium bg-orange-400/20 text-orange-400">
+                          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-flame w-3.5 h-3.5"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>
+                          <span>高インパクト</span>
                         </div>
-                        <div className="min-w-0">
-                          <div className="text-cyan-200 font-medium text-xs">概要</div>
-                          <div className="text-white/80 mt-2 text-sm">
-                            <div className="markdown">
-                              <MarkdownWithTables
-                                markdown={r.title || window.__t('noDescription')}
-                                isOldSafariIOS={isOldSafariIOS}
-                                keyPrefix={`report3-title-${i}`}
-                              />
+                      </div>
+
+                      <div className="mt-4 grid grid-cols-1 gap-4">
+                        <div className="flex items-start gap-4">
+                          <div className="text-cyan-300">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-file-text w-4 h-4 text-blue-400 flex-shrink-0"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-cyan-200 font-medium text-xs">概要</div>
+                            <div className="text-white/80 mt-2 text-sm">
+                              <div className="markdown">
+                                <MarkdownWithTables
+                                  markdown={r.title || window.__t('noDescription')}
+                                  isOldSafariIOS={isOldSafariIOS}
+                                  keyPrefix={`report3-title-${i}`}
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-start gap-4">
+                          <div className="text-green-400">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-circle-check w-4 h-4 text-green-400 flex-shrink-0"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+                          </div>
+                          <div className="min-w-0">
+                            <div className="text-green-200 font-medium text-xs">提案</div>
+                            <div className="text-white/80 mt-2 text-sm">
+                              <div className="markdown">
+                                <MarkdownWithTables
+                                  markdown={r.content || window.__t('noDescription')}
+                                  isOldSafariIOS={isOldSafariIOS}
+                                  keyPrefix={`report3-content-${i}`}
+                                />
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
-
-                      <div className="flex items-start gap-4">
-                        <div className="text-green-400 mt-1">
-                          <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-circle-check w-4 h-4 text-green-400 flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
-                        </div>
-                        <div className="min-w-0">
-                          <div className="text-green-200 font-medium text-xs">提案</div>
-                          <div className="text-white/80 mt-2 text-sm">
-                            <div className="markdown">
-                              <MarkdownWithTables
-                                markdown={r.content || window.__t('noDescription')}
-                                isOldSafariIOS={isOldSafariIOS}
-                                keyPrefix={`report3-content-${i}`}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
                     </div>
-                  </div>
-                ))}
-                {/* Divider and Timeline Section */}
-                <div className="mt-8 pt-6 border-t border-white/20">
-                  <div
-                    className="flex items-center justify-between pl-2 mx-2 px-2 py-2 mt-3 rounded-lg cursor-pointer hover:bg-purple-500/10 transition-colors"
-                    onClick={() => setTimelineCollapsed((s) => !s)}
-                  >
-                    <div className="flex items-center gap-4">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-clock w-4 h-4 text-white/60"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
-                      <div>
-                        <div className="text-white/70 text-base font-semibold">詳細分析（タイムライン）</div>
-                      </div>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="text-white/70 p-2 rounded focus:outline-none transition-colors"
+                  ))}
+                  {/* Divider and Timeline Section */}
+                  <div className="space-y-3 pt-2 border-t border-white/10">
+                    <div
+                      className="flex items-center justify-between p-3 mb-5 rounded-lg cursor-pointer hover:bg-white/5 transform transition-all duration-200"
+                      onClick={() => setTimelineCollapsed((s) => !s)}
                     >
-                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={`w-6 h-6 transform transition-transform duration-200 ${!timelineCollapsed ? 'rotate-180' : ''}`}>
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </button>
-                  </div>
-                  {/* Report Section */}
-                  <div>
-                    {!timelineCollapsed && videoData?.reports_1 && videoData.reports_1.map((item, index) => {
-                      const itemKey = item.phase_index ?? index;
-                      return (
-                        <div key={`timeline-${itemKey}`}>
-                          <div className="mt-4 rounded-xl bg-white/5 border border-white/10 mx-5">
-                            <div 
-                              className="flex items-start justify-between gap-4 px-4 py-3 border-l-4 border-orange-400/80 rounded-xl hover:bg-purple-500/5 transition-colors"
-                            >
-                              <div className="flex items-start gap-3 min-w-0">
-                                <div className="flex items-start gap-3 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => handlePhasePreview(item)}>
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" 
-                                  className="lucide lucide-play w-4 h-4 text-white/70 flex-shrink-0 mt-0.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                  <div className="text-white/80 text-sm font-semibold whitespace-nowrap">
-                                    {item.time_start != null || item.time_end != null ? (
-                                      <>
-                                        {formatTime(item.time_start)}
-                                        {" – "}
-                                        {formatTime(item.time_end)}
-                                      </>
-                                    ) : (
-                                      <span className="text-gray-500">-</span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div className={`text-white/80 text-sm ${!expandedTimeline[itemKey] ? 'truncate' : ''}`}>
-                                  {item.phase_description || window.__t('noDescription')}
-                                </div>
-                              </div>
-                              <div className="flex items-start gap-2 text-orange-400 flex-shrink-0 mt-0.5">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-flame w-4 h-4"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" 
-                                stroke="currentColor" strokeWidth="1.5" 
-                                className={`w-5 h-5 text-white/70 transition-transform duration-200
-                                  cursor-pointer 
-                                  ${expandedTimeline[itemKey] ? 'rotate-180' : ''}`}
-                                onClick={() => setExpandedTimeline((prev) => ({ ...prev, [itemKey]: !prev[itemKey] }))}
-                                >
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
-                              </div>
-                            </div>
-                          </div>
-                          {/* Expanded content sections */}
-                          {expandedTimeline[itemKey] && (
-                            <div className="px-4 pb-4 mt-4 ml-15 flex flex-col gap-4 rounded-xl py-3 bg-white/5 mr-5">
-                              {/* 概要 (Overview) section */}
-                              <div className="flex items-start gap-4">
-                                <div className="text-cyan-300 mt-1">
-                                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-file-text w-4 h-4 text-blue-400 flex-shrink-0 mt-0.5"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>
-                                </div>
-                                <div className="min-w-0">
-                                  <div className="text-cyan-200 font-medium text-xs">概要</div>
-                                  <div className="text-white/80 mt-2 text-sm">
-                                    <div className="markdown">
-                                      <MarkdownWithTables
-                                        markdown={item.phase_description || window.__t('noDescription')}
-                                        isOldSafariIOS={isOldSafariIOS}
-                                        keyPrefix={`timeline-overview-${itemKey}`}
-                                      />
+                      <div className="flex items-center gap-4">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-clock w-4 h-4 text-white/60"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+                        <div>
+                          <div className="text-white/70 text-base font-semibold">詳細分析（タイムライン）</div>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        className="text-white/70 rounded focus:outline-none transition-colors"
+                      >
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={`w-6 h-6 transform transition-transform duration-200 cursor-pointer ${!timelineCollapsed ? 'rotate-180' : ''}`}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                    </div>
+                    {/* Report Section */}
+                    <div>
+                      {!timelineCollapsed && videoData?.reports_1 && videoData.reports_1.map((item, index) => {
+                        const itemKey = item.phase_index ?? index;
+                        return (
+                          <div key={`timeline-${itemKey}`}>
+                            <div className="mt-4 rounded-xl bg-white/5 border border-white/10 mx-5">
+                              <div
+                                className="flex items-start justify-between gap-4 px-4 py-3 border-l-4 border-orange-400/80 rounded-xl hover:bg-purple-500/5 transition-colors"
+                              >
+                                <div className="flex items-start gap-3 min-w-0">
+                                  <div className="flex items-start gap-3 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => handlePhasePreview(item)}>
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+                                      className="lucide lucide-play w-4 h-4 text-white/70 flex-shrink-0 mt-0.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                    <div className="text-white/80 text-sm font-semibold whitespace-nowrap">
+                                      {item.time_start != null || item.time_end != null ? (
+                                        <>
+                                          {formatTime(item.time_start)}
+                                          {" – "}
+                                          {formatTime(item.time_end)}
+                                        </>
+                                      ) : (
+                                        <span className="text-gray-500">-</span>
+                                      )}
                                     </div>
                                   </div>
+                                  <div className={`text-white/80 text-sm ${!expandedTimeline[itemKey] ? 'truncate' : ''}`}>
+                                    {item.phase_description || window.__t('noDescription')}
+                                  </div>
+                                </div>
+                                <div className="flex items-start gap-2 text-orange-400 flex-shrink-0 mt-0.5">
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-flame w-4 h-4"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>
+                                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                                    stroke="currentColor" strokeWidth="1.5"
+                                    className={`w-5 h-5 text-white/70 transition-transform duration-200
+                                  cursor-pointer 
+                                  ${expandedTimeline[itemKey] ? 'rotate-180' : ''}`}
+                                    onClick={() => setExpandedTimeline((prev) => ({ ...prev, [itemKey]: !prev[itemKey] }))}
+                                  >
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                                  </svg>
                                 </div>
                               </div>
-
-                              {/* 提案 (Suggestion) section */}
-                              {item.insight && (
+                            </div>
+                            {/* Expanded content sections */}
+                            {expandedTimeline[itemKey] && (
+                              <div className="px-4 pb-4 mt-4 ml-15 flex flex-col gap-4 rounded-xl py-3 bg-white/5 mr-5">
+                                {/* 概要 (Overview) section */}
                                 <div className="flex items-start gap-4">
-                                  <div className="text-green-400 mt-1">
-                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-circle-check w-4 h-4 text-green-400 flex-shrink-0 mt-0.5"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+                                  <div className="text-cyan-300">
+                                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-file-text w-4 h-4 text-blue-400 flex-shrink-0"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"></path><path d="M14 2v4a2 2 0 0 0 2 2h4"></path><path d="M10 9H8"></path><path d="M16 13H8"></path><path d="M16 17H8"></path></svg>
                                   </div>
                                   <div className="min-w-0">
-                                    <div className="text-green-200 font-medium text-xs">提案</div>
+                                    <div className="text-cyan-200 font-medium text-xs">概要</div>
                                     <div className="text-white/80 mt-2 text-sm">
                                       <div className="markdown">
                                         <MarkdownWithTables
-                                          markdown={item.insight || window.__t('noInsight')}
+                                          markdown={item.phase_description || window.__t('noDescription')}
                                           isOldSafariIOS={isOldSafariIOS}
-                                          keyPrefix={`timeline-insight-${itemKey}`}
+                                          keyPrefix={`timeline-overview-${itemKey}`}
                                         />
                                       </div>
                                     </div>
                                   </div>
                                 </div>
-                              )}
-                            </div>
-                          )}
-                        </div>
-                      );
-                    })}
+
+                                {/* 提案 (Suggestion) section */}
+                                {item.insight && (
+                                  <div className="flex items-start gap-4">
+                                    <div className="text-green-400">
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-circle-check w-4 h-4 text-green-400 flex-shrink-0"><circle cx="12" cy="12" r="10"></circle><path d="m9 12 2 2 4-4"></path></svg>
+                                    </div>
+                                    <div className="min-w-0">
+                                      <div className="text-green-200 font-medium text-xs">提案</div>
+                                      <div className="text-white/80 mt-2 text-sm">
+                                        <div className="markdown">
+                                          <MarkdownWithTables
+                                            markdown={item.insight || window.__t('noInsight')}
+                                            isOldSafariIOS={isOldSafariIOS}
+                                            keyPrefix={`timeline-insight-${itemKey}`}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+
                   </div>
-                  
                 </div>
-              </div>
               )}
-              
+
             </div>
-            
+
           </div>
           {/* Questions and Answers Section */}
           <div className="w-full max-w-4xl mx-auto mt-8 pt-6 border-t border-white/20">
@@ -634,7 +633,7 @@ export default function VideoDetail({ videoData }) {
                               keyPrefix={`chat-${item.id || item.created_at || ""}`}
                             />
                           </div>
-                        </div>  
+                        </div>
                       </div>
                     )}
                   </div>

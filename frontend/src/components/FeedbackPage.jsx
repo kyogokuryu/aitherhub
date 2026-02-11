@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { toast } from "react-toastify";
+import { toast } from "../hooks/use-toast";
 import FeedbackService from "../base/services/feedbackService";
 
 export default function FeedbackPage({ onBack }) {
