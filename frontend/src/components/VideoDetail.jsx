@@ -99,7 +99,7 @@ export default function VideoDetail({ videoData }) {
   const [smoothProgress, setSmoothProgress] = useState(0);
   const progressIntervalRef = useRef(null);
   const lastStatusChangeRef = useRef(Date.now());
-  const [reportCollapsed, setReportCollapsed] = useState(true);
+  const [reportCollapsed, setReportCollapsed] = useState(false);
   const [timelineCollapsed, setTimelineCollapsed] = useState(true);
   const [expandedTimeline, setExpandedTimeline] = useState({});
 
@@ -243,7 +243,7 @@ export default function VideoDetail({ videoData }) {
 
   const handleChatSend = (text) => {
     try {
-      const vid = video?.id || videoData?.id;
+      const vid = videoData?.id;
       if (streamCancelRef.current) {
         return;
       }
@@ -275,7 +275,7 @@ export default function VideoDetail({ videoData }) {
       setChatMessages((prev) => [...prev, { id: localId, question: text, answer: "" }]);
 
       const streamHandle = VideoService.streamChat({
-        videoId: video?.id || videoData?.id,
+        videoId: videoData?.id,
         messages: [{ role: "user", content: text }],
         onMessage: (chunk) => {
           try {
@@ -399,257 +399,6 @@ export default function VideoDetail({ videoData }) {
   }
 
   return (
-    // <div className="overflow-hidden w-full h-full flex flex-col gap-6 p-0 md:overflow-auto lg:p-6">
-    //   <style>{markdownTableStyles}</style>
-    //   <h4 className="md:top-[5px] w-full text-[26px] leading-[35px] font-semibold font-cabin text-center">
-    //     {window.__t('header').split('\n').map((line, idx, arr) => (
-    //       <span key={idx}>
-    //         {line}
-    //         {idx < arr.length - 1 && <br className="block md:hidden" />}
-    //       </span>
-    //     ))}
-    //   </h4>
-    //   {/* Video Header */}
-    //   <div className="flex flex-col overflow-hidden md:overflow-auto lg:ml-[65px] h-full">
-    //     <div className="flex flex-col gap-2">
-    //       <div className="inline-flex self-start items-center bg-white rounded-[50px] h-[41px] px-4">
-    //         <div className="text-[14px] font-bold whitespace-nowrap bg-[linear-gradient(180deg,rgba(69,0,255,1),rgba(155,0,255,1))] text-transparent bg-clip-text">
-    //           {videoData?.original_filename}
-    //         </div>
-    //       </div>
-    //     </div>
-    //     {/* SCROLL AREA */}
-    //     <div className="flex-1 overflow-y-auto scrollbar-custom text-left md:mb-0">
-    //       {videoData?.status === 'DONE' && videoData?.reports_1 && videoData.reports_1.length > 0 && (
-    //         <div className="rounded-lg font-[Cabin] font-semibold text-[18px] leading-[35px] tracking-[0]">
-    //           <div className="mt-4">{window.__t('thankYou')}</div>
-    //           <div className="mb-2">
-    //             {window.__t('analysisDone').split('\n').map((line, idx, arr) => (
-    //               <span key={idx}>
-    //                 {line}
-    //                 {idx < arr.length - 1 && <br className="block md:hidden" />}
-    //               </span>
-    //             ))}
-    //           </div>
-    //         </div>
-    //       )}
-
-    //       <div className="mt-4 font-semibold flex flex-col gap-3">
-    //         {videoData?.status === 'DONE' && videoData?.reports_1 && videoData.reports_1.length > 0 ? (
-    //           <div className="flex flex-col gap-3">
-    //             {/* Report 1: phase descriptions */}
-    //             <div className="text-lg font-semibold mb-2">{window.__t('report1Title') || 'Report 1'}</div>
-    //             {videoData.reports_1.map((it, index) => (
-    //               <div
-    //                 key={`r1-${it.phase_index ?? index}`}
-    //                 className={`grid grid-cols-1 md:grid-cols-[150px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md
-    //                 `}
-    //               >
-    //                 <div
-    //                   className={`flex items-center gap-1 text-sm text-gray-400 font-mono whitespace-nowrap w-fit cursor-pointer hover:text-purple-400 ${previewLoading ? "opacity-60 pointer-events-none" : ""
-    //                     }`}
-    //                   onClick={() => handlePhasePreview(it)}
-    //                   title={window.__t('clickToPreview')}
-    //                 >
-    //                   <svg
-    //                     xmlns="http://www.w3.org/2000/svg"
-    //                     fill="none"
-    //                     viewBox="0 0 24 24"
-    //                     strokeWidth="1.5"
-    //                     stroke="currentColor"
-    //                     className="size-6 mt-[-2px]"
-    //                   >
-    //                     <path
-    //                       strokeLinecap="round"
-    //                       strokeLinejoin="round"
-    //                       d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"
-    //                     />
-    //                   </svg>
-
-
-    //                   {it.time_start != null || it.time_end != null ? (
-    //                     <>
-    //                       {formatTime(it.time_start)}
-    //                       {" – "}
-    //                       {formatTime(it.time_end)}
-    //                     </>
-    //                   ) : (
-    //                     <span className="text-gray-500">-</span>
-    //                   )}
-    //                 </div>
-
-    //                 <div className="text-sm text-left text-gray-100">
-    //                   <div className="markdown">
-    //                     <MarkdownWithTables
-    //                       markdown={it.phase_description || window.__t('noDescription')}
-    //                       isOldSafariIOS={isOldSafariIOS}
-    //                       keyPrefix={`r1-${it.phase_index ?? index}`}
-    //                     />
-    //                   </div>
-    //                 </div>
-    //               </div>
-    //             ))}
-
-    //             {/* Report 2: insights - prefer reports_2 if present, otherwise use reports_1.insight */}
-    //             {(videoData.reports_2 || videoData.reports_1) && (
-    //               <div className="mt-2">
-    //                 <div className="text-lg font-semibold mb-2">{window.__t('report2Title') || 'Report 2'}</div>
-    //                 <div className="flex flex-col gap-3">
-    //                   {(videoData.reports_2 || videoData.reports_1).map((it, idx) => {
-    //                     const keyId = it.phase_index ?? idx;
-    //                     const isOpen = !!expandedR2[keyId];
-    //                     return (
-    //                       <div
-    //                         key={`r2-${keyId}`}
-    //                         className={`grid grid-cols-1 md:grid-cols-[150px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md ${previewLoading ? "opacity-60 pointer-events-none" : ""}`}
-    //                       >
-    //                         <div
-    //                           className={`flex items-center gap-1 text-sm text-gray-400 font-mono whitespace-nowrap w-fit cursor-pointer hover:text-purple-400 transition-colors ${previewLoading ? "opacity-60 pointer-events-none" : ""}`}
-    //                           onClick={() => handlePhasePreview(it)}
-    //                           title={window.__t('clickToPreview')}
-    //                         >
-    //                           <svg
-    //                             xmlns="http://www.w3.org/2000/svg"
-    //                             fill="none"
-    //                             viewBox="0 0 24 24"
-    //                             strokeWidth="1.5"
-    //                             stroke="currentColor"
-    //                             className="size-6 mt-[-2px]"
-    //                           >
-    //                             <path
-    //                               strokeLinecap="round"
-    //                               strokeLinejoin="round"
-    //                               d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"
-    //                             />
-    //                           </svg>
-
-    //                           {it.time_start != null || it.time_end != null ? (
-    //                             <>
-    //                               {formatTime(it.time_start)}
-    //                               {" – "}
-    //                               {formatTime(it.time_end)}
-    //                             </>
-    //                           ) : (
-    //                             <span className="text-gray-500">-</span>
-    //                           )}
-    //                         </div>
-
-    //                         <div className="text-sm text-left text-gray-100 relative min-w-0">
-    //                           <div className={`${isOpen ? '' : 'truncate'} pr-0 md:pr-10`}>
-    //                             {isOpen ? (
-    //                               <div id={`r2-content-${keyId}`} className="markdown">
-    //                                 <MarkdownWithTables
-    //                                   markdown={it.insight || it.phase_description || window.__t('noInsight')}
-    //                                   isOldSafariIOS={isOldSafariIOS}
-    //                                   keyPrefix={`r2-${keyId}`}
-    //                                 />
-    //                               </div>
-    //                             ) : (
-    //                               <div className="truncate text-gray-200">
-    //                                 <MarkdownWithTables
-    //                                   markdown={(it.insight || it.phase_description || '').split('\n')[0] || <span className="text-gray-500">-</span>}
-    //                                   isOldSafariIOS={isOldSafariIOS}
-    //                                   keyPrefix={`r2-${keyId}`}
-    //                                 />
-    //                               </div>
-    //                             )}
-    //                           </div>
-
-    //                           <button
-    //                             onClick={(e) => { e.stopPropagation(); setExpandedR2((prev) => ({ ...prev, [keyId]: !prev[keyId] })); }}
-    //                             className="absolute right-3 top-[-25px] -translate-y-1/2 text-gray-400 hover:text-purple-400 p-1 rounded z-10 cursor-pointer md:top-2.5"
-    //                             aria-expanded={isOpen}
-    //                             aria-controls={`r2-content-${keyId}`}
-    //                             aria-label={isOpen ? window.__t('collapse') : window.__t('expand')}
-    //                           >
-    //                             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
-    //                               <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-    //                             </svg>
-    //                           </button>
-    //                         </div>
-    //                       </div>
-    //                     );
-    //                   })}
-    //                 </div>
-    //               </div>
-    //             )}
-    //             {/* Report 3: additional single-item report (title + content) */}
-    //             {videoData?.report3 && Array.isArray(videoData.report3) && videoData.report3.length > 0 && (
-    //               <div className="mt-4">
-    //                 <div className="text-lg font-semibold mb-2">{window.__t('report3Title') || 'Report 3'}</div>
-    //                 {videoData.report3.map((r, i) => (
-    //                   <div
-    //                     key={`r3-${i}`}
-    //                     className={`grid min-w-0 grid-cols-1 md:grid-cols-[100px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md
-    //                     }`}
-    //                   >
-    //                     <p className="text-sm text-gray-400 font-mono whitespace-normal mt-0 break-words break-all md:mt-3">
-    //                       {r.title ? r.title : <span className="text-gray-500">-</span>}
-    //                     </p>
-
-    //                     <div className="text-sm text-left text-gray-100">
-    //                       <div className="markdown">
-    //                         <MarkdownWithTables
-    //                           markdown={r.content || ""}
-    //                           isOldSafariIOS={isOldSafariIOS}
-    //                           keyPrefix={`r3-${i}`}
-    //                         />
-    //                       </div>
-    //                     </div>
-    //                   </div>
-    //                 ))}
-    //               </div>
-    //             )}
-    //           </div>
-    //         ) : (
-    //           <div className="text-[18px] leading-[35px] tracking-[0] text-gray-500">
-    //             {window.__t('noReports')}
-    //           </div>
-    //         )}
-    //         {chatMessages && chatMessages.length > 0 && (
-    //           <div className="flex flex-col gap-4">
-    //             {chatMessages.map((item) => (
-    //               <div key={item.id || `${item.question}-${item.created_at || ''}`} className="flex flex-col gap-2">
-    //                 <div className="grid grid-cols-1 md:grid-cols-[100px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md">
-    //                   <div className="text-xs text-gray-400 font-mono">{window.__t('userLabel')}</div>
-    //                   <div className="min-w-0 text-sm text-gray-100 whitespace-pre-wrap break-words">{item.question}</div>
-    //                 </div>
-
-    //                 <div className="grid grid-cols-1 md:grid-cols-[100px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md">
-    //                   <div className="text-xs text-gray-400 font-mono">{window.__t('botLabel')}</div>
-    //                   <div className="min-w-0 text-sm text-gray-100">
-    //                     <div className="markdown">
-    //                       <MarkdownWithTables
-    //                         markdown={item.answer || ""}
-    //                         isOldSafariIOS={isOldSafariIOS}
-    //                         keyPrefix={`chat-${item.id || item.created_at || ""}`}
-    //                       />
-    //                     </div>
-    //                   </div>
-    //                 </div>
-    //               </div>
-    //             ))}
-    //             <div ref={chatEndRef} />
-    //           </div>
-    //         )}
-    //       </div>
-    //     </div>
-
-    //     <div className="hidden md:block mt-4 pb-4">
-    //       <ChatInput onSend={handleChatSend} disabled={!!streamCancelRef.current} />
-    //     </div>
-    //   </div>
-
-    //   <VideoPreviewModal
-    //     open={!!previewData}
-    //     onClose={() => setPreviewData(null)}
-    //     videoUrl={previewData?.url}
-    //     timeStart={previewData?.timeStart}
-    //     timeEnd={previewData?.timeEnd}
-    //     skipSeek={previewData?.skipSeek}
-    //   />
-    // </div>
-
     <div className="overflow-hidden w-full h-full flex flex-col gap-6 p-0 md:overflow-auto lg:p-6">
       <style>{markdownTableStyles}</style>
       {/* Video Header */}
@@ -770,17 +519,20 @@ export default function VideoDetail({ videoData }) {
                               className="flex items-start justify-between gap-4 px-4 py-3 border-l-4 border-orange-400/80 rounded-xl hover:bg-purple-500/5 transition-colors"
                             >
                               <div className="flex items-start gap-3 min-w-0">
-                                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-play w-4 h-4 text-white/70 mt-0.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
-                                <div className="text-white/80 text-sm font-semibold whitespace-nowrap">
-                                  {item.time_start != null || item.time_end != null ? (
-                                    <>
-                                      {formatTime(item.time_start)}
-                                      {" – "}
-                                      {formatTime(item.time_end)}
-                                    </>
-                                  ) : (
-                                    <span className="text-gray-500">-</span>
-                                  )}
+                                <div className="flex items-start gap-3 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => handlePhasePreview(item)}>
+                                  <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="currentColor" stroke="none" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" 
+                                  className="lucide lucide-play w-4 h-4 text-white/70 flex-shrink-0 mt-0.5"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                                  <div className="text-white/80 text-sm font-semibold whitespace-nowrap">
+                                    {item.time_start != null || item.time_end != null ? (
+                                      <>
+                                        {formatTime(item.time_start)}
+                                        {" – "}
+                                        {formatTime(item.time_end)}
+                                      </>
+                                    ) : (
+                                      <span className="text-gray-500">-</span>
+                                    )}
+                                  </div>
                                 </div>
                                 <div className={`text-white/80 text-sm ${!expandedTimeline[itemKey] ? 'truncate' : ''}`}>
                                   {item.phase_description || window.__t('noDescription')}
@@ -854,200 +606,37 @@ export default function VideoDetail({ videoData }) {
               )}
               
             </div>
+            
           </div>
-          <div className="mt-4 font-semibold flex flex-col gap-3">
-            {videoData?.status === 'DONE' && videoData?.reports_1 && videoData.reports_1.length > 0 ? (
-              <div className="flex flex-col gap-3">
-                {/* Report 1: phase descriptions */}
-                <div className="text-lg font-semibold mb-2">{window.__t('report1Title') || 'Report 1'}</div>
-                {videoData.reports_1.map((it, index) => (
-                  <div
-                    key={`r1-${it.phase_index ?? index}`}
-                    className={`grid grid-cols-1 md:grid-cols-[150px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md
-                    `}
-                  >
-                    <div
-                      className={`flex items-center gap-1 text-sm text-gray-400 font-mono whitespace-nowrap w-fit cursor-pointer hover:text-purple-400 ${previewLoading ? "opacity-60 pointer-events-none" : ""
-                        }`}
-                      onClick={() => handlePhasePreview(it)}
-                      title={window.__t('clickToPreview')}
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        fill="none"
-                        viewBox="0 0 24 24"
-                        strokeWidth="1.5"
-                        stroke="currentColor"
-                        className="size-6 mt-[-2px]"
-                      >
-                        <path
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"
-                        />
-                      </svg>
-
-
-                      {it.time_start != null || it.time_end != null ? (
-                        <>
-                          {formatTime(it.time_start)}
-                          {" – "}
-                          {formatTime(it.time_end)}
-                        </>
-                      ) : (
-                        <span className="text-gray-500">-</span>
-                      )}
+          {/* Questions and Answers Section */}
+          <div className="w-full max-w-4xl mx-auto mt-8 pt-6 border-t border-white/20">
+            <h3 className="text-white text-lg font-semibold mb-4 text-center">質問と回答</h3>
+            <div className="rounded-2xl p-6 bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-white/20 w-[80%]">
+              <p className="text-white/80 text-sm leading-relaxed">
+                この動画の解析が完了しました。全体的に良い構成ですが、いくつかの改善点が見つかりました。詳細について質問があれば、お聞きください。
+              </p>
+            </div>
+            {/* Chat Section */}
+            {chatMessages && chatMessages.length > 0 && (
+              <div className="mt-6 flex flex-col gap-4">
+                {chatMessages.map((item) => (
+                  <div key={item.id || `${item.question}-${item.created_at || ''}`} className="flex flex-col gap-4">
+                    <div className="w-[80%] mx-auto rounded-2xl bg-[#6F35FF]/60 px-6 py-4">
+                      <p className="text-white/90 text-sm font-medium">{item.question}</p>
                     </div>
-
-                    <div className="text-sm text-left text-gray-100">
-                      <div className="markdown">
-                        <MarkdownWithTables
-                          markdown={it.phase_description || window.__t('noDescription')}
-                          isOldSafariIOS={isOldSafariIOS}
-                          keyPrefix={`r1-${it.phase_index ?? index}`}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                ))}
-
-                {/* Report 2: insights - prefer reports_2 if present, otherwise use reports_1.insight */}
-                {(videoData.reports_2 || videoData.reports_1) && (
-                  <div className="mt-2">
-                    <div className="text-lg font-semibold mb-2">{window.__t('report2Title') || 'Report 2'}</div>
-                    <div className="flex flex-col gap-3">
-                      {(videoData.reports_2 || videoData.reports_1).map((it, idx) => {
-                        const keyId = it.phase_index ?? idx;
-                        const isOpen = !!expandedR2[keyId];
-                        return (
-                          <div
-                            key={`r2-${keyId}`}
-                            className={`grid grid-cols-1 md:grid-cols-[150px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md ${previewLoading ? "opacity-60 pointer-events-none" : ""}`}
-                          >
-                            <div
-                              className={`flex items-center gap-1 text-sm text-gray-400 font-mono whitespace-nowrap w-fit cursor-pointer hover:text-purple-400 transition-colors ${previewLoading ? "opacity-60 pointer-events-none" : ""}`}
-                              onClick={() => handlePhasePreview(it)}
-                              title={window.__t('clickToPreview')}
-                            >
-                              <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                fill="none"
-                                viewBox="0 0 24 24"
-                                strokeWidth="1.5"
-                                stroke="currentColor"
-                                className="size-6 mt-[-2px]"
-                              >
-                                <path
-                                  strokeLinecap="round"
-                                  strokeLinejoin="round"
-                                  d="M5.25 5.653c0-.856.917-1.398 1.667-.986l11.54 6.347a1.125 1.125 0 0 1 0 1.972l-11.54 6.347a1.125 1.125 0 0 1-1.667-.986V5.653Z"
-                                />
-                              </svg>
-
-                              {it.time_start != null || it.time_end != null ? (
-                                <>
-                                  {formatTime(it.time_start)}
-                                  {" – "}
-                                  {formatTime(it.time_end)}
-                                </>
-                              ) : (
-                                <span className="text-gray-500">-</span>
-                              )}
-                            </div>
-
-                            <div className="text-sm text-left text-gray-100 relative min-w-0">
-                              <div className={`${isOpen ? '' : 'truncate'} pr-0 md:pr-10`}>
-                                {isOpen ? (
-                                  <div id={`r2-content-${keyId}`} className="markdown">
-                                    <MarkdownWithTables
-                                      markdown={it.insight || it.phase_description || window.__t('noInsight')}
-                                      isOldSafariIOS={isOldSafariIOS}
-                                      keyPrefix={`r2-${keyId}`}
-                                    />
-                                  </div>
-                                ) : (
-                                  <div className="truncate text-gray-200">
-                                    <MarkdownWithTables
-                                      markdown={(it.insight || it.phase_description || '').split('\n')[0] || <span className="text-gray-500">-</span>}
-                                      isOldSafariIOS={isOldSafariIOS}
-                                      keyPrefix={`r2-${keyId}`}
-                                    />
-                                  </div>
-                                )}
-                              </div>
-
-                              <button
-                                onClick={(e) => { e.stopPropagation(); setExpandedR2((prev) => ({ ...prev, [keyId]: !prev[keyId] })); }}
-                                className="absolute right-3 top-[-25px] -translate-y-1/2 text-gray-400 hover:text-purple-400 p-1 rounded z-10 cursor-pointer md:top-2.5"
-                                aria-expanded={isOpen}
-                                aria-controls={`r2-content-${keyId}`}
-                                aria-label={isOpen ? window.__t('collapse') : window.__t('expand')}
-                              >
-                                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className={`w-5 h-5 transition-transform ${isOpen ? 'rotate-180' : ''}`}>
-                                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                                </svg>
-                              </button>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-                {/* Report 3: additional single-item report (title + content) */}
-                {videoData?.report3 && Array.isArray(videoData.report3) && videoData.report3.length > 0 && (
-                  <div className="mt-4">
-                    <div className="text-lg font-semibold mb-2">{window.__t('report3Title') || 'Report 3'}</div>
-                    {videoData.report3.map((r, i) => (
-                      <div
-                        key={`r3-${i}`}
-                        className={`grid min-w-0 grid-cols-1 md:grid-cols-[100px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md
-                        }`}
-                      >
-                        <p className="text-sm text-gray-400 font-mono whitespace-normal mt-0 break-words break-all md:mt-3">
-                          {r.title ? r.title : <span className="text-gray-500">-</span>}
-                        </p>
-
-                        <div className="text-sm text-left text-gray-100">
+                    {item.answer && (
+                      <div className="w-[80%] rounded-2xl p-6 bg-gradient-to-r from-purple-500/20 to-blue-500/20 border border-white/20">
+                        <div className="text-white/80 text-sm leading-relaxed">
                           <div className="markdown">
                             <MarkdownWithTables
-                              markdown={r.content || ""}
+                              markdown={item.answer || ""}
                               isOldSafariIOS={isOldSafariIOS}
-                              keyPrefix={`r3-${i}`}
+                              keyPrefix={`chat-${item.id || item.created_at || ""}`}
                             />
                           </div>
-                        </div>
+                        </div>  
                       </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-[18px] leading-[35px] tracking-[0] text-gray-500">
-                {window.__t('noReports')}
-              </div>
-            )}
-            {chatMessages && chatMessages.length > 0 && (
-              <div className="flex flex-col gap-4">
-                {chatMessages.map((item) => (
-                  <div key={item.id || `${item.question}-${item.created_at || ''}`} className="flex flex-col gap-2">
-                    <div className="grid grid-cols-1 md:grid-cols-[100px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md">
-                      <div className="text-xs text-gray-400 font-mono">{window.__t('userLabel')}</div>
-                      <div className="min-w-0 text-sm text-gray-100 whitespace-pre-wrap break-words">{item.question}</div>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-[100px_1fr] gap-3 items-start p-3 bg-white/5 rounded-md">
-                      <div className="text-xs text-gray-400 font-mono">{window.__t('botLabel')}</div>
-                      <div className="min-w-0 text-sm text-gray-100">
-                        <div className="markdown">
-                          <MarkdownWithTables
-                            markdown={item.answer || ""}
-                            isOldSafariIOS={isOldSafariIOS}
-                            keyPrefix={`chat-${item.id || item.created_at || ""}`}
-                          />
-                        </div>
-                      </div>
-                    </div>
+                    )}
                   </div>
                 ))}
                 <div ref={chatEndRef} />
@@ -1056,7 +645,7 @@ export default function VideoDetail({ videoData }) {
           </div>
         </div>
 
-        <div className="hidden md:block mt-4 pb-4">
+        <div className="w-full max-w-4xl mx-auto hidden md:block mt-4 pb-4">
           <ChatInput onSend={handleChatSend} disabled={!!streamCancelRef.current} />
         </div>
       </div>
