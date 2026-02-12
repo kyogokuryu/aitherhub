@@ -806,7 +806,7 @@ export default function MainContent({
       </Body>
 
       <div className={children ? "md:hidden" : ""}>
-        <Footer />
+        <Footer showChatInput={videoData?.status === 'DONE' && !showFeedback} />
       </div>
     </div>
   );
