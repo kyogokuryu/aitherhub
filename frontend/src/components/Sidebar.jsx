@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import logo from "../assets/logo/logo.svg";
 import searchMobile from "../assets/icons/searchmobile.png";
@@ -90,12 +91,14 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
     });
   }, [videos, searchValue]);
 
+  const navigate = useNavigate();
+
   const handleVideoClick = (video) => {
     setSelectedVideoId(video.id);
+    navigate(`/video/${video.id}`);
     if (onVideoSelect) {
       onVideoSelect(video);
     }
-
     if (onClose) {
       onClose();
     }
@@ -160,6 +163,7 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
             <div
               onClick={() => {
                 setSelectedVideoId(null);
+                navigate('/');
                 if (onVideoSelect) {
                   onVideoSelect(null);
                 }
@@ -250,7 +254,7 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
               )} */}
             </div>
 
-            <img src={searchMobile} onClick={() => { setSelectedVideoId(null); if (onVideoSelect) onVideoSelect(null); if (onNewAnalysis) onNewAnalysis(); }} className="w-[32px] cursor-pointer" />
+            <img src={searchMobile} onClick={() => { setSelectedVideoId(null); navigate('/'); if (onVideoSelect) onVideoSelect(null); if (onNewAnalysis) onNewAnalysis(); }} className="w-[32px] cursor-pointer" />
           </div>
 
           <div className="bg-[linear-gradient(180deg,rgba(69,0,255,1),rgba(155,0,255,1))]">
