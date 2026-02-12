@@ -120,15 +120,6 @@ apiClient.interceptors.response.use(
       }
     }
 
-    // Handle 403 Forbidden - auto logout and open login modal
-    if (error.response?.status === HTTP_STATUS.FORBIDDEN) {
-      const requestUrl = originalRequest?.url || '';
-      // Don't auto logout if this is an auth endpoint
-      if (!isAuthEndpoint(requestUrl)) {
-        handleAutoLogout();
-      }
-    }
-
     return Promise.reject(error);
   }
 );

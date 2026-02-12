@@ -54,14 +54,6 @@ export default class BaseApiService {
           }
         }
 
-        // Handle 403 Forbidden - auto logout and open login modal
-        if (error.response?.status === 403) {
-          // Don't auto logout if this is an auth endpoint
-          if (!isAuthRequest) {
-            handleAutoLogout();
-          }
-        }
-
         return Promise.reject(error);
       }
     );

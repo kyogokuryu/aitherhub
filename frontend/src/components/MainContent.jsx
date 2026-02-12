@@ -1,5 +1,6 @@
 import { Header, Body, Footer } from "./main";
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import UploadService from "../base/services/uploadService";
 import VideoService from "../base/services/videoService";
 import { toast } from "../hooks/use-toast";
@@ -18,6 +19,8 @@ export default function MainContent({
   showFeedback,
   onCloseFeedback,
 }) {
+  const navigate = useNavigate();
+  const postLoginRedirectKey = "postLoginRedirect";
   const isLoggedIn = Boolean(
     user &&
     (user.token ||
@@ -53,6 +56,13 @@ export default function MainContent({
     console.log("[MainContent] user", user);
     console.log("[MainContent] isLoggedIn", isLoggedIn);
   }, [user, isLoggedIn]);
+
+  useEffect(() => {
+    if (selectedVideoId && !isLoggedIn) {
+      sessionStorage.setItem(postLoginRedirectKey, `/video/${selectedVideoId}`);
+      setShowLoginModal(true);
+    }
+  }, [selectedVideoId, isLoggedIn]);
 
   const normalizeVideoData = (data, fallbackVideoId) => {
     const r1 = Array.isArray(data.reports_1) ? data.reports_1 : (data.reports_1 ? [data.reports_1] : []);
@@ -421,6 +431,13 @@ export default function MainContent({
     const videoId = uploadedVideoId || selectedVideoId;
     console.log("[MainContent] Fetching video details for:", videoId);
 
+    if (!isLoggedIn) {
+      lastRequestedVideoIdRef.current = null;
+      setVideoData(null);
+      setLoadingVideo(false);
+      return;
+    }
+
     if (videoAbortControllerRef.current) {
       videoAbortControllerRef.current.abort();
       videoAbortControllerRef.current = null;
@@ -457,6 +474,11 @@ export default function MainContent({
       } catch (err) {
         if (controller.signal.aborted) return;
         if (currentRequestId !== videoRequestIdRef.current) return;
+        if (err?.response?.status === 403) {
+          navigate("/");
+          setVideoData(null);
+          return;
+        }
         console.error('Failed to fetch video details:', err);
         setVideoData(null);
       } finally {
@@ -473,7 +495,7 @@ export default function MainContent({
     return () => {
       controller.abort();
     };
-  }, [uploadedVideoId, selectedVideoId]);
+  }, [uploadedVideoId, selectedVideoId, isLoggedIn]);
 
   // Handle processing complete - reload video data
   const handleProcessingComplete = useCallback(async () => {
@@ -499,6 +521,11 @@ export default function MainContent({
     } catch (err) {
       if (controller.signal.aborted) return;
       if (currentRequestId !== videoRequestIdRef.current) return;
+      if (err?.response?.status === 403) {
+        navigate("/");
+        setVideoData(null);
+        return;
+      }
       console.error('Failed to reload video after processing:', err);
     } finally {
       if (currentRequestId === videoRequestIdRef.current) {
@@ -555,7 +582,15 @@ export default function MainContent({
             try {
               const storedUser = localStorage.getItem("user");
               if (storedUser && setUser) {
-                setUser(JSON.parse(storedUser));
+                const parsedUser = JSON.parse(storedUser);
+                setUser(parsedUser);
+                if (parsedUser?.isLoggedIn) {
+                  const redirectTo = sessionStorage.getItem(postLoginRedirectKey);
+                  if (redirectTo) {
+                    sessionStorage.removeItem(postLoginRedirectKey);
+                    navigate(redirectTo);
+                  }
+                }
               }
             } catch {
               // ignore JSON/localStorage errors

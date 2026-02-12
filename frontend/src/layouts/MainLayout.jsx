@@ -1,6 +1,7 @@
 import Sidebar from "../components/Sidebar";
 import MainContent from '../components/MainContent';
 import { useState, useCallback, useMemo, useEffect } from "react";
+import { useParams, useNavigate } from 'react-router-dom';
 
 const getUserFromStorage = () => {
   try {
@@ -12,11 +13,23 @@ const getUserFromStorage = () => {
 };
 
 export default function MainLayout() {
+  const { videoId } = useParams();
+  const navigate = useNavigate();
   const [openSidebar, setOpenSidebar] = useState(false);
-  const [selectedVideoId, setSelectedVideoId] = useState(null);
+  const [selectedVideoId, setSelectedVideoId] = useState(videoId || null);
   const [user, setUser] = useState(getUserFromStorage);
   const [refreshKey, setRefreshKey] = useState(0);
   const [showFeedback, setShowFeedback] = useState(false);
+
+  // Sync selectedVideoId when URL param changes
+  useEffect(() => {
+    if (videoId) {
+      setSelectedVideoId(videoId);
+      setShowFeedback(false);
+    } else {
+      setSelectedVideoId(null);
+    }
+  }, [videoId]);
   useEffect(() => {
     let scrollY;
     if (openSidebar) {
@@ -47,9 +60,12 @@ export default function MainLayout() {
 
   const handleVideoSelect = useCallback((video) => {
     setShowFeedback(false);
-    setSelectedVideoId(video?.id || null);
+    if (video?.id) {
+      setSelectedVideoId(video.id);
+      navigate(`/video/${video.id}`);
+    }
     setOpenSidebar(false);
-  }, []);
+  }, [navigate]);
 
   const handleUserChange = useCallback((newUser) => {
     setUser(newUser);
@@ -69,8 +85,9 @@ export default function MainLayout() {
   const handleNewAnalysis = useCallback(() => {
     setShowFeedback(false);
     setSelectedVideoId(null);
+    navigate('/');
     setOpenSidebar(false);
-  }, []);
+  }, [navigate]);
   const handleShowFeedback = useCallback(() => {
     setShowFeedback(true);
     setSelectedVideoId(null);
@@ -86,8 +103,9 @@ export default function MainLayout() {
     if (videoId) {
       setShowFeedback(false);
       setSelectedVideoId(videoId);
+      navigate(`/video/${videoId}`);
     }
-  }, []);
+  }, [navigate]);
 
   const sidebarProps = useMemo(() => ({
     isOpen: openSidebar,
