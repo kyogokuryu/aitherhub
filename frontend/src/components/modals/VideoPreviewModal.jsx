@@ -62,6 +62,8 @@ export default function VideoPreviewModal({
           // Show custom loading when starting seek/play process
           setShowCustomLoading(true);
           setIsLoading(true);
+          vid.defaultMuted = true;
+          vid.muted = true;
 
           const shouldSkipSeek = isClipPreview || skipSeek;
           const shouldSeek = !shouldSkipSeek && !hasSeeked && Math.abs(vid.currentTime - timeStart) > 0.5;
@@ -198,6 +200,8 @@ export default function VideoPreviewModal({
               src={videoUrl}
               controls
               autoPlay
+              muted
+              defaultMuted
               playsInline
               poster="" // Disable default poster/loading
               className="w-full h-full"
