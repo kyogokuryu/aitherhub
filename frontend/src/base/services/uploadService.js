@@ -6,8 +6,8 @@ import { openDB } from 'idb';
 
 const DB_NAME = 'VideoUploadDB';
 const STORE_NAME = 'uploads';
-const BLOCK_SIZE = 4 * 1024 * 1024; // 4MB blocks
-const MAX_CONCURRENT_UPLOADS = 4;
+const BLOCK_SIZE = 64 * 1024 * 1024; // 64MB blocks (was 4MB – reduces HTTP overhead for large files)
+const MAX_CONCURRENT_UPLOADS = 8;  // 8 parallel uploads (was 4)
 
 class UploadService extends BaseApiService {
   constructor() {
