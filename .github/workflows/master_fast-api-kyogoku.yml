@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  build:
+  build_and_deploy:
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -21,7 +21,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      # (Optional) Local sanity check – không ảnh hưởng Azure build
       - name: Create venv and install dependencies (backend only)
         working-directory: backend
         run: |
@@ -29,32 +28,10 @@ jobs:
           source antenv/bin/activate
           pip install -r requirements.txt
 
-      # Upload ONLY backend folder
-      - name: Upload backend artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: python-app
-          retention-days: 1
-          path: |
-            backend
-            !backend/antenv/
-
-  deploy:
-    runs-on: ubuntu-latest
-    needs: build
-  
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: python-app
-          path: .
-  
       - name: Deploy to Azure Web App
         uses: azure/webapps-deploy@v3
         with:
           app-name: fast-api-kyogoku
           slot-name: Production
           publish-profile: ${{ secrets.AZUREAPPSERVICE_PUBLISHPROFILE_CADC6849BE114E58AD1CB2C9281CB379 }}
-          package: .
-
+          package: backend
