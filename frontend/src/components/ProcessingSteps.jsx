@@ -2,9 +2,10 @@ import { memo, useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import VideoService from '../base/services/videoService';
 
 const normalizeProcessingStatus = (status) => {
-  if (status === 'uploaded') {
-    // Keep analysis spinner active immediately after upload complete.
-    return 'STEP_COMPRESS_1080P';
+  if (status === 'uploaded' || status === 'STEP_COMPRESS_1080P') {
+    // Skip compression step – go straight to analysis.
+    // Compression runs in background and is not shown to the user.
+    return 'STEP_0_EXTRACT_FRAMES';
   }
   return status;
 };
@@ -47,11 +48,10 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
     const statusMap = {
       NEW: 0,
       uploaded: 0,
-      STEP_COMPRESS_1080P: 2,
-      STEP_0_EXTRACT_FRAMES: 18,
-      STEP_1_DETECT_PHASES: 20,
-      STEP_2_EXTRACT_METRICS: 25,
-      STEP_3_TRANSCRIBE_AUDIO: 80,
+      STEP_0_EXTRACT_FRAMES: 1,
+      STEP_1_DETECT_PHASES: 10,
+      STEP_2_EXTRACT_METRICS: 20,
+      STEP_3_TRANSCRIBE_AUDIO: 35,
       STEP_4_IMAGE_CAPTION: 87,
       STEP_5_BUILD_PHASE_UNITS: 89,
       STEP_6_BUILD_PHASE_DESCRIPTION: 91,
@@ -74,10 +74,9 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
     const ceilingMap = {
       NEW: 0,
       uploaded: 1,
-      STEP_COMPRESS_1080P: 18,
-      STEP_0_EXTRACT_FRAMES: 20,
-      STEP_1_DETECT_PHASES: 25,
-      STEP_2_EXTRACT_METRICS: 79,
+      STEP_0_EXTRACT_FRAMES: 10,
+      STEP_1_DETECT_PHASES: 20,
+      STEP_2_EXTRACT_METRICS: 34,
       STEP_3_TRANSCRIBE_AUDIO: 86,
       STEP_4_IMAGE_CAPTION: 88,
       STEP_5_BUILD_PHASE_UNITS: 90,
@@ -109,11 +108,10 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
     setMonotonicProgress(boundedTarget);
 
     // Use slower increments for compression step (large range, long duration)
-    const isCompressionStep = status === 'STEP_COMPRESS_1080P';
-    const minIncrement = isCompressionStep ? 0.2 : 1;
-    const maxIncrement = isCompressionStep ? 0.8 : 3;
-    const minInterval = isCompressionStep ? 5000 : 2000;
-    const maxInterval = isCompressionStep ? 10000 : 5000;
+    const minIncrement = 1;
+    const maxIncrement = 3;
+    const minInterval = 2000;
+    const maxInterval = 5000;
 
     // Start interval to gradually increase progress
     progressIntervalRef.current = setInterval(() => {
@@ -316,7 +314,6 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
 
   // Analysis steps are shown in a 5-row window while upload step stays fixed above.
   const analysisSteps = [
-    { key: 'STEP_COMPRESS_1080P', label: window.__t('statusCompress') || '動画を1080pに圧縮中...' },
     { key: 'STEP_0_EXTRACT_FRAMES', label: window.__t('statusStep0') || 'フレーム抽出中...' },
     { key: 'STEP_1_DETECT_PHASES', label: window.__t('statusStep1') || 'フェーズ検出中...' },
     { key: 'STEP_2_EXTRACT_METRICS', label: window.__t('statusStep2') || 'メトリクス抽出中...' },
