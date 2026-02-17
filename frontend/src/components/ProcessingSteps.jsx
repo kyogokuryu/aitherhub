@@ -47,10 +47,10 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
     const statusMap = {
       NEW: 0,
       uploaded: 0,
-      STEP_COMPRESS_1080P: 1,
-      STEP_0_EXTRACT_FRAMES: 2,
-      STEP_1_DETECT_PHASES: 4,
-      STEP_2_EXTRACT_METRICS: 10,
+      STEP_COMPRESS_1080P: 2,
+      STEP_0_EXTRACT_FRAMES: 18,
+      STEP_1_DETECT_PHASES: 20,
+      STEP_2_EXTRACT_METRICS: 25,
       STEP_3_TRANSCRIBE_AUDIO: 80,
       STEP_4_IMAGE_CAPTION: 87,
       STEP_5_BUILD_PHASE_UNITS: 89,
@@ -74,9 +74,9 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
     const ceilingMap = {
       NEW: 0,
       uploaded: 1,
-      STEP_COMPRESS_1080P: 2,
-      STEP_0_EXTRACT_FRAMES: 4,
-      STEP_1_DETECT_PHASES: 10,
+      STEP_COMPRESS_1080P: 18,
+      STEP_0_EXTRACT_FRAMES: 20,
+      STEP_1_DETECT_PHASES: 25,
       STEP_2_EXTRACT_METRICS: 79,
       STEP_3_TRANSCRIBE_AUDIO: 86,
       STEP_4_IMAGE_CAPTION: 88,
@@ -108,11 +108,18 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
     const boundedTarget = Math.min(targetProgress, ceiling);
     setMonotonicProgress(boundedTarget);
 
-    // Start interval to gradually increase progress every 3-5 seconds
+    // Use slower increments for compression step (large range, long duration)
+    const isCompressionStep = status === 'STEP_COMPRESS_1080P';
+    const minIncrement = isCompressionStep ? 0.2 : 1;
+    const maxIncrement = isCompressionStep ? 0.8 : 3;
+    const minInterval = isCompressionStep ? 5000 : 2000;
+    const maxInterval = isCompressionStep ? 10000 : 5000;
+
+    // Start interval to gradually increase progress
     progressIntervalRef.current = setInterval(() => {
       setSmoothProgress(prev => {
         if (prev < 0) return prev;
-        const increment = Math.random() * 2 + 1; // Random increment 1-3%
+        const increment = Math.random() * (maxIncrement - minIncrement) + minIncrement;
         const newProgress = Math.min(prev + increment, ceiling);
         const monotonicProgress = Math.max(newProgress, maxProgressRef.current);
         maxProgressRef.current = monotonicProgress;
@@ -128,7 +135,7 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
 
         return monotonicProgress;
       });
-    }, 2000 + Math.random() * 3000); // Random interval 2-5 seconds
+    }, minInterval + Math.random() * (maxInterval - minInterval));
   }, [calculateProgressCeilingFromStatus, setMonotonicProgress]);
 
   // Callback when processing completes - memoize to prevent re-creation
