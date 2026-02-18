@@ -118,6 +118,10 @@ export default function MainContent({
       setVideoData(null);
       setMessage("");
       setMessageType("");
+      setUploadMode(null);
+      setCleanVideoFile(null);
+      setProductExcelFile(null);
+      setTrendExcelFile(null);
     }
     if (!prev && isLoggedIn) {
       setMessage("");
@@ -175,60 +179,26 @@ export default function MainContent({
     setProgress(0);
   };
 
+  // Clean video file handlers
   const handleCleanVideoFileSelect = (e) => {
-    if (!isLoggedIn) {
-      setShowLoginModal(true);
-      return;
-    }
     const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.type.startsWith("video/")) {
-      setMessageType("error");
-      setMessage(window.__t('selectValidVideoError'));
-      return;
+    if (file && file.type.startsWith("video/")) {
+      setCleanVideoFile(file);
     }
-    setCleanVideoFile(file);
-    setMessage("");
   };
 
   const handleProductExcelSelect = (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-      setMessageType("error");
-      setMessage("Excelファイル(.xlsx)を選択してください");
-      return;
-    }
-    setProductExcelFile(file);
-    setMessage("");
+    if (file) setProductExcelFile(file);
   };
 
   const handleTrendExcelSelect = (e) => {
     const file = e.target.files?.[0];
-    if (!file) return;
-    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-      setMessageType("error");
-      setMessage("Excelファイル(.xlsx)を選択してください");
-      return;
-    }
-    setTrendExcelFile(file);
-    setMessage("");
+    if (file) setTrendExcelFile(file);
   };
 
   const handleCleanVideoUpload = async () => {
-    if (!isLoggedIn) {
-      setShowLoginModal(true);
-      return;
-    }
-    if (!cleanVideoFile) {
-      toast.error("クリーン動画を選択してください");
-      return;
-    }
-    if (!productExcelFile || !trendExcelFile) {
-      toast.error("Excelファイル（productとtrend_stats）を両方選択してください");
-      return;
-    }
-    if (uploading) return;
+    if (!isLoggedIn || !cleanVideoFile || !productExcelFile || !trendExcelFile || uploading) return;
 
     setUploading(true);
     setMessage("");
@@ -665,12 +635,12 @@ export default function MainContent({
     return "NEW";
   }, [uploading, videoData?.status, activeProcessingVideoId]);
   const stableProcessingVideoTitle = useMemo(() => {
-    const nextTitle = videoData?.original_filename || selectedFile?.name || "";
+    const nextTitle = videoData?.original_filename || selectedFile?.name || cleanVideoFile?.name || "";
     if (nextTitle) {
       processingVideoTitleRef.current = nextTitle;
     }
     return processingVideoTitleRef.current;
-  }, [videoData?.original_filename, selectedFile?.name]);
+  }, [videoData?.original_filename, selectedFile?.name, cleanVideoFile?.name]);
 
   useEffect(() => {
     if (!activeProcessingVideoId && !uploading) {

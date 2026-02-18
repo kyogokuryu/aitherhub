@@ -115,6 +115,7 @@ def build_report_1_timeline(phase_units):
     """
     Build timeline report for frontend rendering.
     No GPT involved.
+    Includes sales data if available (from Excel uploads).
     """
     out = []
 
@@ -122,7 +123,7 @@ def build_report_1_timeline(phase_units):
         start = p["metric_timeseries"]["start"] or {}
         end   = p["metric_timeseries"]["end"] or {}
 
-        out.append({
+        entry = {
             "phase_index": p["phase_index"],
             "group_id": p.get("group_id"),
             "phase_description": p["phase_description"],
@@ -145,7 +146,18 @@ def build_report_1_timeline(phase_units):
                     else None
                 )
             }
-        })
+        }
+
+        # Add sales data if available
+        sales = p.get("sales_data")
+        if sales:
+            entry["sales"] = {
+                "revenue": sales.get("sales"),
+                "orders": sales.get("orders"),
+                "products_sold": sales.get("products_sold", []),
+            }
+
+        out.append(entry)
 
     return out
 
@@ -232,10 +244,11 @@ async def process_one_report2_task(
     }
 
 
-def build_report_2_phase_insights_raw(phase_units, best_data):
+def build_report_2_phase_insights_raw(phase_units, best_data, excel_data=None):
     """
     Compare each phase with the best historical phase
     of the same group using rule-based metrics.
+    Includes sales data if available.
     """
     out = []
 
@@ -264,14 +277,22 @@ def build_report_2_phase_insights_raw(phase_units, best_data):
             if cur["like_per_viewer"] < ref["like_per_viewer"]:
                 findings.append("like_per_viewer_lower_than_best")
 
-        out.append({
+        item = {
             "phase_index": p["phase_index"],
             "group_id": gid,
             "phase_description": p["phase_description"],
+            "speech_text": p.get("speech_text", ""),
             "current_metrics": cur,
             "benchmark_metrics": ref,
-            "findings": findings
-        })
+            "findings": findings,
+        }
+
+        # Add sales data if available
+        sales = p.get("sales_data")
+        if sales:
+            item["sales_data"] = sales
+
+        out.append(item)
 
     return out
 
@@ -329,38 +350,43 @@ def is_gpt_report_2_invalid(text: str) -> bool:
 
 
 PROMPT_REPORT_2 = """
-あなたはライブコマース分析の専門家です。
+あなたはライブコマースで「売上を最大化する」ための専門コンサルタントです。
 
-以下は、あるフェーズの説明と、
-同タイプの過去ベストフェーズとの指標比較結果です。
+以下は、ある配信フェーズの情報です。
+- フェーズの説明（配信者の行動・発話内容）
+- 視聴者数・いいね数の推移
+- 売上データ（ある場合）
+- 過去のベストパフォーマンスとの比較
 
-このフェーズについて：
+あなたの役割：
+- このフェーズで「どう売っているか」を分析する
+- 「どうすればもっと売れるか」を具体的にアドバイスする
+- 動画の描写やシーンの説明は一切不要
 
-- 最も優先して改善すべき「構造的な問題（WHY）」を最大2つだけ選んでください
-- 重要度・インパクトが最も高いものに限定してください
-- 全ての問題点を網羅しようとしないでください
+分析の観点：
+- セールストーク（購買を促す言い回し、限定感、緊急性の演出）
+- 商品の見せ方（デモ、ビフォーアフター、使用感の伝え方）
+- 購買導線（カートへの誘導タイミング、価格提示のタイミング）
+- 視聴者エンゲージメント（コメント誘導、質問への対応）
+- 売上データがある場合：なぜこの時間帯に売れた/売れなかったかの分析
 
 出力ルール：
-- 各箇条書きは必ず「分析（なぜ失速しているか）」から書き始める
-- 行動提案（HOW）は分析の後に、1文だけ補足として書く
-- 「〜してください」「〜を入れるべき」から書き始めない
+- 最大2つの具体的なセールス改善アドバイス
+- 各アドバイスは「現状の売り方の問題点」→「具体的な改善アクション」の順で書く
+- 「〜のシーンでは配信者が〜している」のような動画の描写は書かない
+- すぐに次の配信で実践できるレベルの具体性で書く
+- 1項目＝最大3文まで
 
 制約：
-- 指標を再計算しない
 - データを捏造しない
-- 抽象的な表現を避け、構造・行動・比較を具体的に書く
-- ベストフェーズとの違いが分かるように述べる
-
-出力形式：
-- 最大2つまでの箇条書き
-- 1項目＝最大3文まで
+- 抽象的な表現を避ける（「もっと工夫する」ではなく「価格を先に見せてから限定数を伝える」のように書く）
 
 入力：
 {data}
 
 """.strip()
 
-def rewrite_report_2_with_gpt(raw_items):
+def rewrite_report_2_with_gpt(raw_items, excel_data=None):
     results = {}
 
     async def runner():
@@ -436,32 +462,38 @@ def build_report_3_video_insights_raw(phase_units):
 
 
 PROMPT_REPORT_3 = """
-あなたはライブコマース動画全体の【構造と総合的なパフォーマンス】を分析する専門家です。
+あなたはライブコマースで「売上を最大化する」ための専門コンサルタントです。
 
 提供される情報：
-- フェーズタイプごとの集計パフォーマンス
-- 詳細な時系列データは【含まれていません】
+- 配信全体のフェーズ別パフォーマンス（視聴者数・いいね数の変動）
 
-タスク：
-- 動画全体の構成を俯瞰的に分析する
-- 構造上の強み・弱みを明確にする
-- どのタイプのフェーズが成果に貢献しているか、
-  またはパフォーマンスを阻害しているかを説明する
-- 構成・流れ・テンポに関する改善案を提案する
+あなたの役割：
+- 配信全体の「売り方の流れ」を俯瞰的に分析する
+- どのタイミングで売上が伸びているか、どこで機会損失があるかを特定する
+- 売上を最大化するための「配信構成の改善」を具体的に提案する
+- 動画の描写やシーンの説明は一切不要
+
+分析の観点：
+- オープニング（最初のフック）の効果
+- 商品紹介のタイミングと順番
+- 購買ピークの作り方（限定感・緊急性・価格提示）
+- クロージング（最後の押し）の強さ
+- 視聴者離脱が起きているポイントとその原因
 
 【必須ルール】：
 - 数値を捏造しない
-- group_id や内部IDを【一切】言及しない
-- 入力データに含まれない事実を推測しない
-- 出力は【必ず JSON のみ】とする
-- 各インサイトは【1オブジェクト＝1インサイト】とする
+- group_id や内部IDを一切言及しない
+- 動画の描写やシーンの説明は書かない
+- すぐに実践できるレベルの具体性で書く
+- 出力は必ず JSON のみ
+- 各インサイトは1オブジェクト＝1インサイト
 
 出力形式（厳守）：
 {
   "video_insights": [
     {
-      "title": "短く要点を示すタイトル",
-      "content": "インサイトの説明（数文）"
+      "title": "売上に直結する短いタイトル",
+      "content": "具体的な売り方の改善アドバイス（数文）"
     }
   ]
 }
@@ -679,30 +711,36 @@ def build_report_3_structure_vs_benchmark_raw(
 
 
 PROMPT_REPORT_3_STRUCTURE = """
-あなたはライブコマース動画の【構成・脚本・テンポ設計】を改善するプロのディレクターです。
+あなたはライブコマースで「売上を最大化する」ための配信構成の専門家です。
 
-以下は、この動画の「構造的な特徴」を数値化・要約したデータです。
+以下は、この配信の「構造的な特徴」を数値化・要約したデータです。
 （※内部的には比較分析された結果ですが、その事実には一切言及しないでください）
 
 あなたの役割：
-- この動画の構成を「脚本・演出の観点」からレビューする
-- どんなタイプの構成の動画かを言語化する
-- どこが良くできているかを説明する
-- どこを直すと、もっと良くなるかを【具体的な演出・構成レベル】でアドバイスする
+- この配信の構成を「売上を最大化する観点」からレビューする
+- 売上に直結する構成の強み・弱みを明確にする
+- 売上を伸ばすための「配信構成の改善」を具体的に提案する
+- 動画の描写やシーンの説明は一切不要
+
+分析の観点：
+- 商品紹介の配置とタイミング（いつ、どの順番で商品を出すか）
+- 購買ピークの作り方（セールストークの盛り上げ方）
+- フェーズの切り替えテンポ（視聴者を飽きさせない進行）
+- オープニングとクロージングの設計
 
 重要なルール：
 - 「ベンチマーク」「他の動画」「平均」などの言葉を一切使わない
 - 数値や内部指標の話をしない
-- 視聴者体験と構成設計の観点でのみ語る
-- コンサルではなく、現場の演出家の口調で書く
+- 動画の描写やシーンの説明は書かない
+- すぐに次の配信で実践できるレベルの具体性で書く
 - 出力は必ず JSON のみ
 
 出力形式：
 {
   "video_insights": [
     {
-      "title": "短く要点を示すタイトル",
-      "content": "構成や脚本に対する具体的なフィードバックと改善案（数文）"
+      "title": "売上に直結する短いタイトル",
+      "content": "具体的な配信構成の改善アドバイス（数文）"
     }
   ]
 }

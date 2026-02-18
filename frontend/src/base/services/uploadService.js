@@ -268,24 +268,6 @@ class UploadService extends BaseApiService {
   }
 
   /**
-   * Check if user has resumable upload
-   * @param {number} user_id
-   * @returns {Promise<{upload_resume: boolean, upload_id?: string}>}
-   */
-  async checkUploadResume(user_id) {
-    return await this.get(`${URL_CONSTANTS.UPLOAD_RESUME_CHECK}/${user_id}`);
-  }
-
-  /**
-   * Clear all uploads for a user
-   * @param {number} user_id
-   * @returns {Promise<{status: string, message: string, deleted_count: number}>}
-   */
-  async clearUserUploads(user_id) {
-    return await this.delete(`${URL_CONSTANTS.UPLOADS_CLEAR}/${user_id}`);
-  }
-
-  /**
    * Generate SAS upload URLs for Excel files
    * @param {string} email - User email
    * @param {string} video_id - Video ID
@@ -348,6 +330,24 @@ class UploadService extends BaseApiService {
   }
 
   /**
+   * Check if user has resumable upload
+   * @param {number} user_id
+   * @returns {Promise<{upload_resume: boolean, upload_id?: string}>}
+   */
+  async checkUploadResume(user_id) {
+    return await this.get(`${URL_CONSTANTS.UPLOAD_RESUME_CHECK}/${user_id}`);
+  }
+
+  /**
+   * Clear all uploads for a user
+   * @param {number} user_id
+   * @returns {Promise<{status: string, message: string, deleted_count: number}>}
+   */
+  async clearUserUploads(user_id) {
+    return await this.delete(`${URL_CONSTANTS.UPLOADS_CLEAR}/${user_id}`);
+  }
+
+  /**
    * Complete upload workflow: generate URL + upload to Azure + notify backend
    * @param {File} file - File to upload
    * @param {string} email - User email
@@ -381,7 +381,6 @@ class UploadService extends BaseApiService {
 
     return video_id;
   }
-
   /**
    * Complete clean video upload workflow: video + Excel files
    * @param {File} videoFile - Clean video file

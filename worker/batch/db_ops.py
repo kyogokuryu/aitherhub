@@ -1474,3 +1474,31 @@ def update_video_split_status_sync(video_id: str, split_status: str):
     return loop.run_until_complete(
         update_video_split_status(video_id, split_status)
     )
+
+# ---------- Excel URLs for clean video ----------
+
+async def get_video_excel_urls(video_id: str):
+    """
+    Get upload_type, excel_product_blob_url, excel_trend_blob_url
+    for a given video.
+    """
+    sql = text("""
+        SELECT upload_type, excel_product_blob_url, excel_trend_blob_url
+        FROM videos
+        WHERE id = :video_id
+    """)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(sql, {"video_id": video_id})
+        row = result.fetchone()
+    if not row:
+        return None
+    return {
+        "upload_type": row[0],
+        "excel_product_blob_url": row[1],
+        "excel_trend_blob_url": row[2],
+    }
+
+
+def get_video_excel_urls_sync(video_id: str):
+    loop = get_event_loop()
+    return loop.run_until_complete(get_video_excel_urls(video_id))

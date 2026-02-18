@@ -5,12 +5,15 @@ from app.core.container import Container
 from app.models.orm.upload import Upload
 from app.models.orm.user import User
 from datetime import datetime, timedelta
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 import os
-import logging
 import asyncio
 import uuid as uuid_module
+
+
+_logger = logging.getLogger(__name__)
 
 
 class VideoService:
@@ -63,13 +66,14 @@ class VideoService:
     async def generate_excel_upload_urls(self, email: str, video_id: str, product_filename: str, trend_filename: str):
         """Generate SAS upload URLs for Excel files (product + trend_stats)"""
         # Generate upload URL for product Excel
+        product_blob_name = f"{email}/{video_id}/excel/{product_filename}"
         _, product_upload_url, product_blob_url, expiry = await generate_upload_sas(
             email=email,
             video_id=video_id,
             filename=f"excel/{product_filename}",
         )
 
-        # Generate upload URL for trend_stats Excel
+        # Generate upload URL for trend stats Excel
         _, trend_upload_url, trend_blob_url, _ = await generate_upload_sas(
             email=email,
             video_id=video_id,
@@ -150,28 +154,33 @@ class VideoService:
         # For clean_video uploads, generate download URLs for Excel files
         if upload_type == "clean_video":
             if excel_product_blob_url:
-                product_download_url, _ = await generate_download_sas(
-                    email=email,
-                    video_id=str(video.id),
-                    filename=f"excel/{excel_product_blob_url.split('/')[-1].split('?')[0]}",
-                    expires_in_minutes=1440,
-                )
-                queue_payload["excel_product_url"] = product_download_url
+                try:
+                    product_download_url, _ = await generate_download_sas(
+                        email=email,
+                        video_id=str(video.id),
+                        filename=f"excel/{excel_product_blob_url.split('/')[-1].split('?')[0]}",
+                        expires_in_minutes=1440,
+                    )
+                    queue_payload["excel_product_url"] = product_download_url
+                except Exception as e:
+                    _logger.warning(f"Failed to generate product Excel download URL: {e}")
 
             if excel_trend_blob_url:
-                trend_download_url, _ = await generate_download_sas(
-                    email=email,
-                    video_id=str(video.id),
-                    filename=f"excel/{excel_trend_blob_url.split('/')[-1].split('?')[0]}",
-                    expires_in_minutes=1440,
-                )
-                queue_payload["excel_trend_url"] = trend_download_url
+                try:
+                    trend_download_url, _ = await generate_download_sas(
+                        email=email,
+                        video_id=str(video.id),
+                        filename=f"excel/{excel_trend_blob_url.split('/')[-1].split('?')[0]}",
+                        expires_in_minutes=1440,
+                    )
+                    queue_payload["excel_trend_url"] = trend_download_url
+                except Exception as e:
+                    _logger.warning(f"Failed to generate trend Excel download URL: {e}")
 
         # 4) Enqueue a message so worker can start processing
         await enqueue_job(queue_payload)
 
         # Remove upload session record if present
-        _logger = logging.getLogger(__name__)
         if upload_id:
             try:
                 from uuid import UUID as _UUID
@@ -180,12 +189,7 @@ class VideoService:
                     delete(Upload).where(Upload.id == upload_uuid)
                 )
                 await db.commit()
-                _logger.info(f"Deleted upload record {upload_id} for user {user_id}")
-            except Exception as e:
-                _logger.warning(
-                    f"Failed to delete upload record {upload_id}: {e}. "
-                    "Will be cleaned up by check_upload_resume."
-                )
+            except Exception:
                 try:
                     await db.rollback()
                 except Exception:
@@ -197,7 +201,6 @@ class VideoService:
                 delete(Upload).where(Upload.user_id == user_id)
             )
             await db.commit()
-            _logger.info(f"Cleaned up all upload records for user {user_id}")
         except Exception:
             try:
                 await db.rollback()

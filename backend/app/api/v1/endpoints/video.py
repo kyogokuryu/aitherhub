@@ -16,9 +16,9 @@ from app.schema.video_schema import (
     GenerateDownloadURLResponse,
     UploadCompleteRequest,
     UploadCompleteResponse,
-    VideoResponse,
     GenerateExcelUploadURLRequest,
     GenerateExcelUploadURLResponse,
+    VideoResponse,
 )
 from app.services.video_service import VideoService
 from app.repository.video_repository import VideoRepository
@@ -251,6 +251,7 @@ async def clear_user_uploads(
     except Exception as exc:
         await db.rollback()
         raise HTTPException(status_code=500, detail=f"Failed to clear uploads: {exc}")
+
 
 
 @router.get("/user/{user_id}", response_model=List[VideoResponse])
