@@ -339,7 +339,7 @@ def main():
         excel_data = None
         try:
             excel_urls = get_video_excel_urls_sync(video_id)
-            if excel_urls and excel_urls.get("upload_type") == "clean":
+            if excel_urls and excel_urls.get("upload_type") == "clean_video":
                 logger.info("[EXCEL] Clean video detected, loading Excel data...")
                 excel_data = load_excel_data(video_id, excel_urls)
                 logger.info(
