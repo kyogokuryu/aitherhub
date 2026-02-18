@@ -281,7 +281,13 @@ def apply_max_phase(indices, total_frames, max_len=150):
 
     return sorted(list(set(result)))
 
-def pick_representative_frames(model, phases, total_frames, frame_dir):
+def pick_representative_frames(model, phases, total_frames, frame_dir, max_samples_per_phase=5):
+    """
+    Pick representative frames for each phase.
+    OPTIMIZED: Instead of scanning ALL frames in each phase,
+    sample up to max_samples_per_phase evenly spaced frames.
+    This reduces YOLO inference calls from thousands to ~5 per phase.
+    """
     files = sorted(os.listdir(frame_dir))
     reps = []
 
@@ -290,13 +296,29 @@ def pick_representative_frames(model, phases, total_frames, frame_dir):
     for i in range(1, len(extended)):
         start = extended[i - 1]
         end = extended[i]
+        phase_len = end - start
+
+        if phase_len <= 0:
+            reps.append(start)
+            continue
+
+        # Sample evenly spaced frames instead of scanning all
+        if phase_len <= max_samples_per_phase:
+            sample_indices = list(range(start, end))
+        else:
+            step = phase_len / max_samples_per_phase
+            sample_indices = [start + int(step * j) for j in range(max_samples_per_phase)]
 
         best_frame = start
         best_score = 0
 
-        for f in range(start, end):
+        for f in sample_indices:
+            if f >= len(files):
+                continue
             img_path = os.path.join(frame_dir, files[f])
             img = cv2.imread(img_path)
+            if img is None:
+                continue
 
             result = model(img)[0]
 

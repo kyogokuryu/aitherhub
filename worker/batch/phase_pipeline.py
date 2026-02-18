@@ -11,7 +11,8 @@ from decouple import config
 import asyncio
 from functools import partial
 
-MAX_CONCURRENCY = 8
+# Reduced from 8 to 4 to avoid 429 rate limits on Azure OpenAI
+MAX_CONCURRENCY = 4
 
 
 # ======================================================
@@ -32,7 +33,8 @@ GPT5_MODEL = env("GPT5_MODEL")
 
 # Max number of frames to scan forward/backward
 # when GPT fails to read viewer_count at phase boundary
-MAX_FALLBACK = 20
+# Reduced from 20 to 5 to minimize GPT Vision API calls and avoid 429 rate limits
+MAX_FALLBACK = 5
 
 
 client = AzureOpenAI(
@@ -361,11 +363,32 @@ def read_phase_end(files, frame_dir, frame_idx):
 
 
 
-def extract_phase_stats(keyframes, total_frames, frame_dir):
+def extract_phase_stats(keyframes, total_frames, frame_dir, phase_importance=None):
+    """
+    STEP 2 – Extract viewer/like metrics for each phase.
+
+    Args:
+        keyframes: phase boundary frame indices
+        total_frames: total number of frames
+        frame_dir: directory containing extracted frames
+        phase_importance: optional list[bool] indicating which phases are important.
+            If provided, only important phases will be analyzed via GPT Vision.
+            Non-important phases get None metrics (saves API calls).
+    """
     files = sorted(os.listdir(frame_dir))
     extended = [0] + keyframes + [total_frames]
 
     phase_results = {}
+
+    # Count how many phases will be analyzed
+    total_phases = len(extended) - 1
+    if phase_importance:
+        analyze_count = sum(1 for i in range(total_phases) if i < len(phase_importance) and phase_importance[i])
+        skip_count = total_phases - analyze_count
+        print(f"[STEP2] CSV filter: analyzing {analyze_count}/{total_phases} phases, skipping {skip_count}")
+    else:
+        analyze_count = total_phases
+        print(f"[STEP2] No CSV filter: analyzing all {total_phases} phases")
 
     async def runner():
         sem = asyncio.Semaphore(MAX_CONCURRENCY)
@@ -375,6 +398,11 @@ def extract_phase_stats(keyframes, total_frames, frame_dir):
             start = extended[i]
             end = extended[i + 1] - 1
             phase_idx = i + 1
+
+            # Skip non-important phases if filter is provided
+            if phase_importance and i < len(phase_importance) and not phase_importance[i]:
+                print(f"[STEP2] SKIP phase {phase_idx} (not important per CSV)")
+                continue
 
             tasks.append(
                 process_phase_role(

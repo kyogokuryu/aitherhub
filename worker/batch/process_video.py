@@ -78,6 +78,7 @@ from video_structure_group_stats import recompute_video_structure_group_stats
 from best_video_pipeline import process_best_video
 
 from excel_parser import load_excel_data, match_sales_to_phase
+from csv_slot_filter import get_important_time_ranges, filter_phases_by_importance
 from video_status import VideoStatus
 from video_compressor import compress_and_replace
 
@@ -486,9 +487,41 @@ def main():
             rep_frames = None
             total_frames = None
 
+        # =========================
+        # CSV SLOT FILTER – 注目タイムスロットの検出
+        # =========================
+        important_ranges = []
+        phase_importance = None
+        if excel_data and excel_data.get("has_trend_data") and keyframes is not None:
+            logger.info("=== CSV SLOT FILTER – Detecting important time ranges ===")
+            try:
+                important_ranges = get_important_time_ranges(
+                    trends=excel_data["trends"],
+                    video_duration_sec=float(total_frames),  # fps=1
+                    margin_sec=600,  # 前後10分
+                    min_score=1,
+                )
+                if important_ranges:
+                    phase_importance = filter_phases_by_importance(
+                        keyframes=keyframes,
+                        total_frames=total_frames,
+                        important_ranges=important_ranges,
+                    )
+                    important_count = sum(phase_importance) if phase_importance else 0
+                    total_count = len(phase_importance) if phase_importance else 0
+                    logger.info(
+                        "[CSV_FILTER] Will analyze %d/%d phases (skipping %d)",
+                        important_count, total_count, total_count - important_count,
+                    )
+                else:
+                    logger.info("[CSV_FILTER] No important ranges found, analyzing all phases")
+            except Exception as e:
+                logger.warning("[CSV_FILTER] Failed to compute important ranges: %s", e)
+                important_ranges = []
+                phase_importance = None
 
         # =========================
-        # STEP 2 – PHASE METRICS
+        # STEP 2 – PHASE METRICS (filtered by CSV importance)
         # =========================
         if start_step <= 2:
             update_video_status_sync(video_id, VideoStatus.STEP_2_EXTRACT_METRICS)
@@ -497,6 +530,7 @@ def main():
                 keyframes=keyframes,
                 total_frames=total_frames,
                 frame_dir=frame_dir,
+                phase_importance=phase_importance,
             )
         else:
             logger.info("[SKIP] STEP 2")
@@ -518,14 +552,27 @@ def main():
             logger.info("[SKIP] STEP 3")
 
         # =========================
-        # STEP 4 – IMAGE CAPTION
+        # STEP 4 – IMAGE CAPTION (filtered by CSV importance)
         # =========================
         if start_step <= 4:
             update_video_status_sync(video_id, VideoStatus.STEP_4_IMAGE_CAPTION)
             logger.info("=== STEP 4 – IMAGE CAPTION ===")
+
+            # Filter rep_frames to only important phases
+            filtered_rep_frames = rep_frames
+            if phase_importance and rep_frames:
+                filtered_rep_frames = [
+                    rf for i, rf in enumerate(rep_frames)
+                    if i < len(phase_importance) and phase_importance[i]
+                ]
+                logger.info(
+                    "[CSV_FILTER] Image caption: %d/%d rep_frames (filtered)",
+                    len(filtered_rep_frames), len(rep_frames),
+                )
+
             keyframe_captions = caption_keyframes(
                 frame_dir=frame_dir,
-                rep_frames=rep_frames,
+                rep_frames=filtered_rep_frames if filtered_rep_frames else rep_frames,
             )
 
         else:
