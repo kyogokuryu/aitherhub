@@ -14,4 +14,8 @@ export const URL_CONSTANTS = {
   GET_USER_VIDEOS: "/api/v1/videos/user",
   GET_VIDEO: "/api/v1/videos",
   FEEDBACK_SUBMIT: "/api/v1/feedback",
+  LCJ_LINK_STATUS: "/api/v1/lcj/link-status",
+  LCJ_VERIFY_LIVER: "/api/v1/lcj/verify-liver",
+  LCJ_LINK: "/api/v1/lcj/link",
+  LCJ_UNLINK: "/api/v1/lcj/unlink",
 };
