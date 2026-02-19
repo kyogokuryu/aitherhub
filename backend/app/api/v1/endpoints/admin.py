@@ -1,6 +1,7 @@
 """
 Admin dashboard API endpoint.
 Provides platform-wide statistics for the master dashboard.
+Each query is isolated with rollback on failure to prevent cascade errors.
 """
 from fastapi import APIRouter, Depends, HTTPException, Header
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -16,103 +17,72 @@ ADMIN_ID = "aither"
 ADMIN_PASS = "hub"
 
 
-async def _get_dashboard_data(db: AsyncSession) -> dict:
-    """Gather all dashboard statistics. Each section uses its own try-except."""
+async def _q(db: AsyncSession, sql: str, default=0):
+    """Run a scalar query with rollback on failure to keep the session alive."""
+    try:
+        r = await db.execute(text(sql))
+        val = r.scalar()
+        return val if val is not None else default
+    except Exception as e:
+        logger.warning(f"Admin query error: {e}")
+        try:
+            await db.rollback()
+        except Exception:
+            pass
+        return default
 
-    errors = []
+
+async def _get_dashboard_data(db: AsyncSession) -> dict:
+    """Gather all dashboard statistics."""
 
     # ── Data Volume ──
-    total_videos = 0
-    analyzed_videos = 0
-    total_duration_seconds = 0
-    try:
-        r = await db.execute(text("SELECT COUNT(*) FROM videos"))
-        total_videos = r.scalar() or 0
-    except Exception as e:
-        errors.append(f"total_videos: {e}")
-
-    try:
-        r = await db.execute(text("SELECT COUNT(*) FROM videos WHERE status = 'DONE'"))
-        analyzed_videos = r.scalar() or 0
-    except Exception as e:
-        errors.append(f"analyzed_videos: {e}")
-
+    total_videos = await _q(db, "SELECT COUNT(*) FROM videos")
+    analyzed_videos = await _q(db, "SELECT COUNT(*) FROM videos WHERE status = 'DONE'")
     pending_videos = total_videos - analyzed_videos
 
-    try:
-        # time_end is stored as double precision (seconds)
-        r = await db.execute(text("""
-            SELECT COALESCE(SUM(max_sec), 0) FROM (
-                SELECT video_id, MAX(COALESCE(time_end, 0)) as max_sec
-                FROM video_phases
-                WHERE time_end IS NOT NULL
-                GROUP BY video_id
-            ) sub
-        """))
-        total_duration_seconds = int(r.scalar() or 0)
-    except Exception as e:
-        errors.append(f"duration: {e}")
+    # time_end is double precision (seconds)
+    total_duration_seconds = await _q(db, """
+        SELECT COALESCE(SUM(max_sec), 0) FROM (
+            SELECT video_id, MAX(COALESCE(time_end, 0)) as max_sec
+            FROM video_phases
+            WHERE time_end IS NOT NULL
+            GROUP BY video_id
+        ) sub
+    """)
+    total_duration_seconds = int(total_duration_seconds)
 
     # ── Video Types ──
-    screen_recording_count = 0
-    clean_video_count = 0
-    latest_upload = None
-    try:
-        r = await db.execute(text(
-            "SELECT COUNT(*) FROM videos WHERE upload_type = 'screen_recording' OR upload_type IS NULL"
-        ))
-        screen_recording_count = r.scalar() or 0
-    except Exception as e:
-        errors.append(f"screen_recording: {e}")
-
-    try:
-        r = await db.execute(text(
-            "SELECT COUNT(*) FROM videos WHERE upload_type = 'clean_video'"
-        ))
-        clean_video_count = r.scalar() or 0
-    except Exception as e:
-        errors.append(f"clean_video: {e}")
-
+    screen_recording_count = await _q(
+        db,
+        "SELECT COUNT(*) FROM videos WHERE upload_type = 'screen_recording' OR upload_type IS NULL",
+    )
+    clean_video_count = await _q(
+        db,
+        "SELECT COUNT(*) FROM videos WHERE upload_type = 'clean_video'",
+    )
     if screen_recording_count == 0 and clean_video_count == 0 and total_videos > 0:
         screen_recording_count = total_videos
 
-    try:
-        r = await db.execute(text("SELECT MAX(created_at) FROM videos"))
-        raw = r.scalar()
-        latest_upload = str(raw) if raw else None
-    except Exception as e:
-        errors.append(f"latest_upload: {e}")
+    latest_upload_raw = await _q(db, "SELECT MAX(created_at) FROM videos", default=None)
+    latest_upload = str(latest_upload_raw) if latest_upload_raw else None
 
     # ── User Scale ──
-    total_users = 0
-    total_streamers = 0
-    this_month_uploaders = 0
-    try:
-        r = await db.execute(text("SELECT COUNT(*) FROM users WHERE is_active = true"))
-        total_users = r.scalar() or 0
-    except Exception as e:
-        errors.append(f"total_users: {e}")
+    total_users = await _q(db, "SELECT COUNT(*) FROM users WHERE is_active = true")
+    if total_users == 0:
+        total_users = await _q(db, "SELECT COUNT(*) FROM users")
 
-    try:
-        r = await db.execute(text("SELECT COUNT(DISTINCT user_id) FROM videos"))
-        total_streamers = r.scalar() or 0
-    except Exception as e:
-        errors.append(f"streamers: {e}")
-
-    try:
-        r = await db.execute(text(
-            "SELECT COUNT(DISTINCT user_id) FROM videos "
-            "WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)"
-        ))
-        this_month_uploaders = r.scalar() or 0
-    except Exception as e:
-        errors.append(f"this_month: {e}")
+    total_streamers = await _q(db, "SELECT COUNT(DISTINCT user_id) FROM videos")
+    this_month_uploaders = await _q(
+        db,
+        "SELECT COUNT(DISTINCT user_id) FROM videos "
+        "WHERE created_at >= DATE_TRUNC('month', CURRENT_DATE)",
+    )
 
     # Format duration
     total_hours = total_duration_seconds // 3600
     total_minutes = (total_duration_seconds % 3600) // 60
 
-    result = {
+    return {
         "data_volume": {
             "total_videos": total_videos,
             "analyzed_videos": analyzed_videos,
@@ -132,13 +102,6 @@ async def _get_dashboard_data(db: AsyncSession) -> dict:
         },
     }
 
-    if errors:
-        result["_debug_errors"] = errors
-        for err in errors:
-            logger.warning(f"Admin dashboard query error: {err}")
-
-    return result
-
 
 @router.get("/dashboard")
 async def get_dashboard_stats(
@@ -149,47 +112,6 @@ async def get_dashboard_stats(
     if current_user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Admin access required")
     return await _get_dashboard_data(db)
-
-
-@router.get("/debug-schema")
-async def debug_schema(
-    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
-    db: AsyncSession = Depends(get_db),
-):
-    """Temporary debug endpoint to check actual DB schema."""
-    expected_key = f"{ADMIN_ID}:{ADMIN_PASS}"
-    if x_admin_key != expected_key:
-        raise HTTPException(status_code=403, detail="Invalid admin credentials")
-    results = {}
-    for table in ["videos", "users", "video_phases"]:
-        try:
-            r = await db.execute(text(
-                f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table}' ORDER BY ordinal_position"
-            ))
-            results[table] = [row[0] for row in r.fetchall()]
-        except Exception as e:
-            results[table] = f"Error: {e}"
-    # Get sample time data and row count
-    try:
-        r = await db.execute(text("SELECT COUNT(*) FROM video_phases"))
-        results["video_phases_count"] = r.scalar()
-    except Exception as e:
-        results["video_phases_count"] = f"Error: {e}"
-    try:
-        r = await db.execute(text(
-            "SELECT time_start, time_end FROM video_phases LIMIT 10"
-        ))
-        results["time_samples"] = [{"start": row[0], "end": row[1]} for row in r.fetchall()]
-    except Exception as e:
-        results["time_samples"] = f"Error: {e}"
-    try:
-        r = await db.execute(text(
-            "SELECT time_start, time_end FROM video_phases WHERE time_end IS NOT NULL LIMIT 10"
-        ))
-        results["time_non_null"] = [{"start": row[0], "end": row[1]} for row in r.fetchall()]
-    except Exception as e:
-        results["time_non_null"] = f"Error: {e}"
-    return results
 
 
 @router.get("/dashboard-public")
