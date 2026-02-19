@@ -505,7 +505,18 @@ async def get_video_detail(
 
         # load video_phases (to get phase_description, time_start, time_end)
         sql_phases = text("""
-            SELECT phase_index, phase_description, time_start, time_end
+            SELECT phase_index, phase_description, time_start, time_end,
+                   COALESCE(gmv, 0) as gmv,
+                   COALESCE(order_count, 0) as order_count,
+                   COALESCE(viewer_count, 0) as viewer_count,
+                   COALESCE(like_count, 0) as like_count,
+                   COALESCE(comment_count, 0) as comment_count,
+                   COALESCE(share_count, 0) as share_count,
+                   COALESCE(new_followers, 0) as new_followers,
+                   COALESCE(product_clicks, 0) as product_clicks,
+                   COALESCE(conversion_rate, 0) as conversion_rate,
+                   COALESCE(gpm, 0) as gpm,
+                   COALESCE(importance_score, 0) as importance_score
             FROM video_phases
             WHERE video_id = :video_id
         """)
@@ -517,6 +528,17 @@ async def get_video_detail(
                 "phase_description": r.phase_description,
                 "time_start": r.time_start,
                 "time_end": r.time_end,
+                "gmv": r.gmv,
+                "order_count": r.order_count,
+                "viewer_count": r.viewer_count,
+                "like_count": r.like_count,
+                "comment_count": r.comment_count,
+                "share_count": r.share_count,
+                "new_followers": r.new_followers,
+                "product_clicks": r.product_clicks,
+                "conversion_rate": r.conversion_rate,
+                "gpm": r.gpm,
+                "importance_score": r.importance_score,
             }
             for r in phase_rows
         }
@@ -619,6 +641,19 @@ async def get_video_detail(
                 "time_end": time_end,
                 "insight": r.insight,
                 "video_clip_url": video_clip_url,
+                "csv_metrics": {
+                    "gmv": pm.get("gmv", 0),
+                    "order_count": pm.get("order_count", 0),
+                    "viewer_count": pm.get("viewer_count", 0),
+                    "like_count": pm.get("like_count", 0),
+                    "comment_count": pm.get("comment_count", 0),
+                    "share_count": pm.get("share_count", 0),
+                    "new_followers": pm.get("new_followers", 0),
+                    "product_clicks": pm.get("product_clicks", 0),
+                    "conversion_rate": pm.get("conversion_rate", 0),
+                    "gpm": pm.get("gpm", 0),
+                    "importance_score": pm.get("importance_score", 0),
+                },
             })
 
         # load latest video_insights record for report3 (single item)

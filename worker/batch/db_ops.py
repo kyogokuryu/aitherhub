@@ -251,6 +251,65 @@ def update_video_phase_description_sync(*args, **kwargs):
     return loop.run_until_complete(update_video_phase_description(*args, **kwargs))
 
 
+# ---------- STEP 5.5: update CSV metrics on video_phases ----------
+
+async def update_video_phase_csv_metrics(
+    video_id: str,
+    phase_index: int,
+    gmv: float = 0,
+    order_count: int = 0,
+    viewer_count: int = 0,
+    like_count: int = 0,
+    comment_count: int = 0,
+    share_count: int = 0,
+    new_followers: int = 0,
+    product_clicks: int = 0,
+    conversion_rate: float = 0,
+    gpm: float = 0,
+    importance_score: float = 0,
+):
+    sql = text("""
+        UPDATE video_phases
+        SET gmv = :gmv,
+            order_count = :order_count,
+            viewer_count = :viewer_count,
+            like_count = :like_count,
+            comment_count = :comment_count,
+            share_count = :share_count,
+            new_followers = :new_followers,
+            product_clicks = :product_clicks,
+            conversion_rate = :conversion_rate,
+            gpm = :gpm,
+            importance_score = :importance_score,
+            updated_at = now()
+        WHERE video_id = :video_id
+          AND phase_index = :phase_index
+    """)
+
+    async with AsyncSessionLocal() as session:
+        await session.execute(sql, {
+            "video_id": video_id,
+            "phase_index": phase_index,
+            "gmv": gmv,
+            "order_count": order_count,
+            "viewer_count": viewer_count,
+            "like_count": like_count,
+            "comment_count": comment_count,
+            "share_count": share_count,
+            "new_followers": new_followers,
+            "product_clicks": product_clicks,
+            "conversion_rate": conversion_rate,
+            "gpm": gpm,
+            "importance_score": importance_score,
+        })
+        await session.commit()
+
+
+def update_video_phase_csv_metrics_sync(*args, **kwargs):
+    loop = get_event_loop()
+    return loop.run_until_complete(update_video_phase_csv_metrics(*args, **kwargs))
+
+
 # ---------- STEP 7: upsert phase_groups + update video_phases ----------
 async def get_all_phase_groups(user_id: int):
     """

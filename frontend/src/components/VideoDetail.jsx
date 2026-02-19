@@ -591,6 +591,59 @@ export default function VideoDetail({ videoData }) {
                                 >
                                   {item.phase_description || window.__t('noDescription')}
                                 </div>
+                                {/* CSV Metrics Badges */}
+                                {item.csv_metrics && (
+                                  (() => {
+                                    const m = item.csv_metrics;
+                                    const hasAnyData = m.gmv > 0 || m.order_count > 0 || m.viewer_count > 0 || m.like_count > 0 || m.comment_count > 0 || m.new_followers > 0 || m.product_clicks > 0;
+                                    if (!hasAnyData) return null;
+                                    return (
+                                      <div className="flex flex-wrap gap-1.5 mt-2">
+                                        {m.gmv > 0 && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-yellow-500/20 text-yellow-300 border border-yellow-500/30">
+                                            <span>\u00A5</span>{Math.round(m.gmv).toLocaleString()}
+                                          </span>
+                                        )}
+                                        {m.order_count > 0 && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-500/20 text-green-300 border border-green-500/30">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+                                            {m.order_count}件
+                                          </span>
+                                        )}
+                                        {m.viewer_count > 0 && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/20 text-blue-300 border border-blue-500/30">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                                            {m.viewer_count.toLocaleString()}
+                                          </span>
+                                        )}
+                                        {m.like_count > 0 && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                                            {m.like_count.toLocaleString()}
+                                          </span>
+                                        )}
+                                        {m.comment_count > 0 && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-purple-500/20 text-purple-300 border border-purple-500/30">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                                            {m.comment_count}
+                                          </span>
+                                        )}
+                                        {m.new_followers > 0 && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="8.5" cy="7" r="4"/><line x1="20" y1="8" x2="20" y2="14"/><line x1="23" y1="11" x2="17" y2="11"/></svg>
+                                            +{m.new_followers}
+                                          </span>
+                                        )}
+                                        {m.product_clicks > 0 && (
+                                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium bg-orange-500/20 text-orange-300 border border-orange-500/30">
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+                                            {m.product_clicks}クリック
+                                          </span>
+                                        )}
+                                      </div>
+                                    );
+                                  })()
+                                )}
                               </div>
                             </div>
                             {/* Expanded content sections */}

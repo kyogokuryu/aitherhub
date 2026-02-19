@@ -63,6 +63,7 @@ from db_ops import (
     get_video_status_sync,
     load_video_phases_sync,
     update_video_phase_description_sync,
+    update_video_phase_csv_metrics_sync,
     update_phase_group_sync,
     get_video_structure_group_id_of_video_sync,
     bulk_upsert_group_best_phases_sync,
@@ -620,19 +621,123 @@ def main():
             phase_units = load_video_phases_sync(video_id, user_id)
 
         # =========================
-        # STEP 5.5 – MERGE EXCEL DATA INTO PHASE UNITS
+        # STEP 5.5 – MERGE EXCEL DATA INTO PHASE UNITS + PERSIST CSV METRICS
         # =========================
         if excel_data and excel_data.get("has_trend_data"):
             logger.info("[EXCEL] Merging sales/trend data into phase_units...")
+            from csv_slot_filter import (
+                _find_key, _safe_float, _parse_time_to_seconds,
+                _detect_time_key, compute_slot_scores,
+            )
+
+            trends = excel_data["trends"]
+            scored_slots = compute_slot_scores(trends)
+            time_key = _detect_time_key(trends)
+            sample = trends[0] if trends else {}
+
+            # CSVカラム名を自動検出
+            gmv_key = _find_key(sample, ["gmv", "GMV", "成交金额"])
+            order_key = _find_key(sample, ["成交件数", "订单数", "orders"])
+            viewer_key = _find_key(sample, ["观看人数", "viewers", "viewer_count"])
+            like_key = _find_key(sample, ["点赞数", "likes", "like_count"])
+            comment_key = _find_key(sample, ["评论数", "comments", "comment_count"])
+            share_key = _find_key(sample, ["分享次数", "shares", "share_count"])
+            follower_key = _find_key(sample, ["新增粉丝数", "new_followers"])
+            click_key = _find_key(sample, ["商品点击量", "product_clicks"])
+            conv_key = _find_key(sample, ["点击成交转化率", "click_conversion"])
+            gpm_key = _find_key(sample, ["千次观看成交金额", "gmv_per_1k_views", "GPM"])
+
+            logger.info("[CSV_METRICS] Detected keys: gmv=%s, order=%s, viewer=%s, like=%s, comment=%s, share=%s, follower=%s, click=%s, conv=%s, gpm=%s",
+                gmv_key, order_key, viewer_key, like_key, comment_key, share_key, follower_key, click_key, conv_key, gpm_key)
+
+            # CSVエントリを時刻順にソート
+            timed_entries = []
+            if time_key:
+                for entry in trends:
+                    t_sec = _parse_time_to_seconds(entry.get(time_key))
+                    if t_sec is not None:
+                        timed_entries.append({"time_sec": t_sec, "entry": entry})
+                timed_entries.sort(key=lambda x: x["time_sec"])
+
+            video_start_sec = timed_entries[0]["time_sec"] if timed_entries else 0
+
+            # スコア付きスロットをtime_secでインデックス化
+            score_map = {s["time_sec"]: s["score"] for s in scored_slots}
+
             for p in phase_units:
                 tr = p.get("time_range", {})
                 start_sec = tr.get("start_sec", 0)
                 end_sec = tr.get("end_sec", 0)
-                sales_info = match_sales_to_phase(
-                    excel_data["trends"], start_sec, end_sec
-                )
+
+                # 従来のsales_dataマッチ
+                sales_info = match_sales_to_phase(trends, start_sec, end_sec)
                 p["sales_data"] = sales_info
-            logger.info("[EXCEL] Sales data merged into %d phases", len(phase_units))
+
+                # CSVの該当タイムスロットを見つけて指標を取得
+                phase_abs_start = start_sec + video_start_sec
+                phase_abs_end = end_sec + video_start_sec
+
+                # フェーズに重なるCSVエントリを集約
+                phase_gmv = 0
+                phase_orders = 0
+                phase_viewers = 0
+                phase_likes = 0
+                phase_comments = 0
+                phase_shares = 0
+                phase_followers = 0
+                phase_clicks = 0
+                phase_conv = 0
+                phase_gpm = 0
+                phase_score = 0
+                match_count = 0
+
+                for te in timed_entries:
+                    t = te["time_sec"]
+                    e = te["entry"]
+                    if t >= phase_abs_start and t <= phase_abs_end:
+                        match_count += 1
+                        if gmv_key: phase_gmv += _safe_float(e.get(gmv_key)) or 0
+                        if order_key: phase_orders += int(_safe_float(e.get(order_key)) or 0)
+                        if viewer_key: phase_viewers = max(phase_viewers, int(_safe_float(e.get(viewer_key)) or 0))
+                        if like_key: phase_likes = max(phase_likes, int(_safe_float(e.get(like_key)) or 0))
+                        if comment_key: phase_comments += int(_safe_float(e.get(comment_key)) or 0)
+                        if share_key: phase_shares += int(_safe_float(e.get(share_key)) or 0)
+                        if follower_key: phase_followers += int(_safe_float(e.get(follower_key)) or 0)
+                        if click_key: phase_clicks += int(_safe_float(e.get(click_key)) or 0)
+                        if conv_key:
+                            cv = _safe_float(e.get(conv_key)) or 0
+                            phase_conv = max(phase_conv, cv)
+                        if gpm_key:
+                            gv = _safe_float(e.get(gpm_key)) or 0
+                            phase_gpm = max(phase_gpm, gv)
+                        phase_score = max(phase_score, score_map.get(t, 0))
+
+                # phase_unitにCSV指標を追加
+                p["csv_metrics"] = {
+                    "gmv": phase_gmv,
+                    "order_count": phase_orders,
+                    "viewer_count": phase_viewers,
+                    "like_count": phase_likes,
+                    "comment_count": phase_comments,
+                    "share_count": phase_shares,
+                    "new_followers": phase_followers,
+                    "product_clicks": phase_clicks,
+                    "conversion_rate": phase_conv,
+                    "gpm": phase_gpm,
+                    "importance_score": phase_score,
+                }
+
+                # DBに保存
+                try:
+                    update_video_phase_csv_metrics_sync(
+                        video_id=str(video_id),
+                        phase_index=p["phase_index"],
+                        **p["csv_metrics"],
+                    )
+                except Exception as e:
+                    logger.warning("[CSV_METRICS] Failed to persist metrics for phase %d: %s", p["phase_index"], e)
+
+            logger.info("[EXCEL] Sales data + CSV metrics merged into %d phases", len(phase_units))
         if excel_data and excel_data.get("has_product_data"):
             logger.info("[EXCEL] Product data available: %d products", len(excel_data["products"]))
 
@@ -751,8 +856,10 @@ def main():
         if start_step <= 10:
             update_video_status_sync(video_id, VideoStatus.STEP_10_ASSIGN_VIDEO_STRUCTURE_GROUP)
             logger.info("=== STEP 10 – ASSIGN VIDEO STRUCTURE GROUP ===")
-
-            assign_video_structure_group(video_id, user_id)
+            try:
+                assign_video_structure_group(video_id, user_id)
+            except Exception as e:
+                logger.warning("[STEP10] Non-fatal error (continuing): %s", e)
         else:
             logger.info("[SKIP] STEP 10")
 
@@ -763,10 +870,12 @@ def main():
         if start_step <= 11:
             update_video_status_sync(video_id, VideoStatus.STEP_11_UPDATE_VIDEO_STRUCTURE_GROUP_STATS)
             logger.info("=== STEP 11 – UPDATE VIDEO STRUCTURE GROUP STATS ===")
-
-            group_id = get_video_structure_group_id_of_video_sync(video_id, user_id)
-            if group_id:
-                recompute_video_structure_group_stats(group_id, user_id)
+            try:
+                group_id = get_video_structure_group_id_of_video_sync(video_id, user_id)
+                if group_id:
+                    recompute_video_structure_group_stats(group_id, user_id)
+            except Exception as e:
+                logger.warning("[STEP11] Non-fatal error (continuing): %s", e)
         else:
             logger.info("[SKIP] STEP 11")
 
@@ -776,9 +885,10 @@ def main():
         if start_step <= 12:
             update_video_status_sync(video_id, VideoStatus.STEP_12_UPDATE_VIDEO_STRUCTURE_BEST)
             logger.info("=== STEP 12 – UPDATE VIDEO STRUCTURE BEST ===")
-
-            
-            process_best_video(video_id, user_id)
+            try:
+                process_best_video(video_id, user_id)
+            except Exception as e:
+                logger.warning("[STEP12] Non-fatal error (continuing): %s", e)
         else:
             logger.info("[SKIP] STEP 12")
 
