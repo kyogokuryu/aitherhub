@@ -449,6 +449,16 @@ class VideoService extends BaseApiService {
       cancel: () => controller.abort(), // Alias for compatibility
     };
   }
+
+  async getProductData(videoId) {
+    try {
+      const response = await this.get(`/api/v1/videos/${videoId}/product-data`);
+      return response;
+    } catch (error) {
+      console.warn('Failed to fetch product data:', error);
+      return { products: [], trends: [], has_product_data: false, has_trend_data: false };
+    }
+  }
 }
 
 export default new VideoService();

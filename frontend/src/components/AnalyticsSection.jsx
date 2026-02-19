@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import Highcharts from "highcharts";
 import HighchartsReact from "highcharts-react-official";
+import VideoService from "../base/services/videoService";
 
 /**
  * AnalyticsSection – renders KPI cards, sub-metrics, a time-series chart,
- * and a product breakdown table above the report section.
+ * product breakdown table, and Excel product data above the report section.
  *
  * Props:
  *   reports1  – array of phase objects (each with csv_metrics, time_start, time_end)
@@ -12,6 +13,26 @@ import HighchartsReact from "highcharts-react-official";
  */
 export default function AnalyticsSection({ reports1, videoData }) {
   const [collapsed, setCollapsed] = useState(false);
+  const [excelData, setExcelData] = useState(null);
+  const [loadingExcel, setLoadingExcel] = useState(false);
+
+  // ── Fetch Excel product/trend data ────────────────────────────
+  useEffect(() => {
+    if (!videoData?.id) return;
+    // Only fetch if video has excel URLs
+    if (!videoData.excel_product_blob_url && !videoData.excel_trend_blob_url) return;
+
+    let cancelled = false;
+    setLoadingExcel(true);
+    VideoService.getProductData(videoData.id)
+      .then((data) => {
+        if (!cancelled) setExcelData(data);
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingExcel(false);
+      });
+    return () => { cancelled = true; };
+  }, [videoData?.id, videoData?.excel_product_blob_url, videoData?.excel_trend_blob_url]);
 
   // ── Aggregate metrics from all phases ──────────────────────────
   const agg = useMemo(() => {
@@ -64,7 +85,7 @@ export default function AnalyticsSection({ reports1, videoData }) {
         timeSeriesViewers.push({ x: midTime, y: m.viewer_count || 0 });
       }
 
-      // Collect product names
+      // Collect product names from phase csv_metrics
       if (m.product_names && Array.isArray(m.product_names)) {
         for (const name of m.product_names) {
           if (!productMap[name]) {
@@ -107,6 +128,58 @@ export default function AnalyticsSection({ reports1, videoData }) {
     };
   }, [reports1]);
 
+  // ── Process Excel trend data for chart with real timestamps ────
+  const trendChart = useMemo(() => {
+    if (!excelData?.has_trend_data || !excelData.trends || excelData.trends.length === 0) return null;
+
+    const trends = excelData.trends;
+    // Detect column names (flexible matching)
+    const keys = Object.keys(trends[0] || {});
+    const timeKey = keys.find(k => /时间|time|時間/.test(k.toLowerCase())) || keys[0];
+    const gmvKey = keys.find(k => /gmv|销售额|売上|revenue|成交金额/.test(k.toLowerCase()));
+    const viewerKey = keys.find(k => /观看|viewer|視聴|在线|观众|人数/.test(k.toLowerCase()));
+    const orderKey = keys.find(k => /订单|order|注文|成交/.test(k.toLowerCase()));
+
+    if (!timeKey) return null;
+
+    // Parse time values and detect first timestamp
+    const parsed = [];
+    let firstMinutes = null;
+
+    for (const row of trends) {
+      const timeVal = row[timeKey];
+      if (!timeVal) continue;
+
+      // Parse HH:MM format
+      const timeStr = String(timeVal).trim();
+      const match = timeStr.match(/^(\d{1,2}):(\d{2})/);
+      if (!match) continue;
+
+      const hours = parseInt(match[1], 10);
+      const minutes = parseInt(match[2], 10);
+      const totalMinutes = hours * 60 + minutes;
+
+      if (firstMinutes === null) firstMinutes = totalMinutes;
+
+      // Handle day wrap (e.g., 23:00 -> 01:00)
+      let elapsed = totalMinutes - firstMinutes;
+      if (elapsed < 0) elapsed += 24 * 60;
+
+      parsed.push({
+        realTime: timeStr,
+        elapsedMin: elapsed,
+        elapsedSec: elapsed * 60,
+        gmv: gmvKey ? (parseFloat(row[gmvKey]) || 0) : null,
+        viewers: viewerKey ? (parseInt(row[viewerKey]) || 0) : null,
+        orders: orderKey ? (parseInt(row[orderKey]) || 0) : null,
+      });
+    }
+
+    if (parsed.length < 2) return null;
+
+    return { data: parsed, hasGmv: !!gmvKey, hasViewers: !!viewerKey, hasOrders: !!orderKey };
+  }, [excelData]);
+
   // ── Format helpers ─────────────────────────────────────────────
   const fmtTime = (seconds) => {
     const m = Math.floor(seconds / 60);
@@ -122,7 +195,7 @@ export default function AnalyticsSection({ reports1, videoData }) {
   // ── Don't render if no data ────────────────────────────────────
   if (!agg) return null;
 
-  // ── Highcharts options ─────────────────────────────────────────
+  // ── Highcharts options (phase-based) ──────────────────────────
   const chartOptions = {
     chart: {
       height: 180,
@@ -207,6 +280,134 @@ export default function AnalyticsSection({ reports1, videoData }) {
       },
     ],
   };
+
+  // ── Trend chart options (from Excel with real timestamps) ─────
+  const trendChartOptions = trendChart ? {
+    chart: {
+      height: 200,
+      backgroundColor: "transparent",
+      style: { fontFamily: "inherit" },
+    },
+    title: { text: null },
+    credits: { enabled: false },
+    legend: {
+      align: "right",
+      verticalAlign: "top",
+      floating: true,
+      itemStyle: { fontSize: "10px", color: "#6b7280" },
+    },
+    xAxis: {
+      type: "linear",
+      labels: {
+        formatter: function () {
+          const min = Math.round(this.value / 60);
+          // Find the closest data point to get real time
+          const closest = trendChart.data.reduce((prev, curr) =>
+            Math.abs(curr.elapsedSec - this.value) < Math.abs(prev.elapsedSec - this.value) ? curr : prev
+          );
+          return `${closest.realTime}\n(${min}分)`;
+        },
+        style: { fontSize: "9px", color: "#9ca3af" },
+      },
+      lineColor: "#e5e7eb",
+      tickColor: "#e5e7eb",
+    },
+    yAxis: [
+      ...(trendChart.hasGmv ? [{
+        title: { text: null },
+        labels: {
+          formatter: function () {
+            return "¥" + (this.value >= 1000 ? Math.round(this.value / 1000) + "k" : this.value);
+          },
+          style: { fontSize: "10px", color: "#f97316" },
+        },
+        gridLineColor: "#f3f4f6",
+      }] : []),
+      ...(trendChart.hasViewers ? [{
+        title: { text: null },
+        opposite: true,
+        labels: {
+          style: { fontSize: "10px", color: "#3b82f6" },
+        },
+        gridLineWidth: 0,
+      }] : []),
+    ],
+    tooltip: {
+      shared: true,
+      formatter: function () {
+        const closest = trendChart.data.reduce((prev, curr) =>
+          Math.abs(curr.elapsedSec - this.x) < Math.abs(prev.elapsedSec - this.x) ? curr : prev
+        );
+        const elapsed = Math.round(this.x / 60);
+        let s = `<b>${closest.realTime}</b> (配信${elapsed}分頃)<br/>`;
+        for (const p of this.points) {
+          let val;
+          if (p.series.name.includes("売上")) val = "¥" + Math.round(p.y).toLocaleString();
+          else if (p.series.name.includes("視聴")) val = p.y.toLocaleString() + "人";
+          else val = p.y.toLocaleString();
+          s += `<span style="color:${p.color}">\u25CF</span> ${p.series.name}: <b>${val}</b><br/>`;
+        }
+        return s;
+      },
+    },
+    plotOptions: {
+      areaspline: {
+        fillOpacity: 0.15,
+        marker: { enabled: false, radius: 2 },
+        lineWidth: 2,
+      },
+    },
+    series: [
+      ...(trendChart.hasGmv ? [{
+        name: "売上（累積）",
+        type: "areaspline",
+        color: "#f97316",
+        data: (() => {
+          let cum = 0;
+          return trendChart.data.filter(d => d.gmv != null).map(d => {
+            cum += d.gmv;
+            return [d.elapsedSec, cum];
+          });
+        })(),
+        yAxis: 0,
+      }] : []),
+      ...(trendChart.hasViewers ? [{
+        name: "視聴者数",
+        type: "areaspline",
+        color: "#3b82f6",
+        data: trendChart.data.filter(d => d.viewers != null).map(d => [d.elapsedSec, d.viewers]),
+        yAxis: trendChart.hasGmv ? 1 : 0,
+      }] : []),
+    ],
+  } : null;
+
+  // ── Process Excel product data ────────────────────────────────
+  const excelProducts = useMemo(() => {
+    if (!excelData?.has_product_data || !excelData.products || excelData.products.length === 0) return null;
+
+    const products = excelData.products;
+    const keys = Object.keys(products[0] || {});
+
+    // Detect column names
+    const nameKey = keys.find(k => /商品名|product_name|name|商品/.test(k.toLowerCase())) || keys[0];
+    const priceKey = keys.find(k => /価格|price|单价|金额/.test(k.toLowerCase()));
+    const quantityKey = keys.find(k => /数量|quantity|qty|販売数/.test(k.toLowerCase()));
+    const revenueKey = keys.find(k => /売上|revenue|gmv|销售额|金额/.test(k.toLowerCase()));
+    const categoryKey = keys.find(k => /カテゴリ|category|分類/.test(k.toLowerCase()));
+
+    // Get all display columns (exclude internal ones)
+    const displayKeys = keys.filter(k => k && !k.startsWith("col_"));
+
+    return {
+      items: products,
+      nameKey,
+      priceKey,
+      quantityKey,
+      revenueKey,
+      categoryKey,
+      displayKeys,
+    };
+  }, [excelData]);
 
   // ── Render ─────────────────────────────────────────────────────
   return (
@@ -314,14 +515,95 @@ export default function AnalyticsSection({ reports1, videoData }) {
               ))}
             </div>
 
-            {/* ── Chart ── */}
-            {agg.cumulativeGmv.length > 1 && (
+            {/* ── Trend Chart (from Excel with real timestamps) ── */}
+            {trendChartOptions && (
+              <div className="rounded-xl bg-white border border-gray-200 p-3 shadow-sm">
+                <div className="flex items-center gap-2 mb-2 px-1">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-500">
+                    <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
+                  </svg>
+                  <span className="text-xs font-semibold text-gray-600">配信時間別推移</span>
+                  <span className="text-[10px] text-gray-400">（実時刻 + 経過時間）</span>
+                </div>
+                <HighchartsReact highcharts={Highcharts} options={trendChartOptions} />
+              </div>
+            )}
+
+            {/* ── Phase-based Chart (fallback if no trend data) ── */}
+            {!trendChartOptions && agg.cumulativeGmv.length > 1 && (
               <div className="rounded-xl bg-white border border-gray-200 p-3 shadow-sm">
                 <HighchartsReact highcharts={Highcharts} options={chartOptions} />
               </div>
             )}
 
-            {/* ── Product Breakdown ── */}
+            {/* ── Excel Product Data Table ── */}
+            {excelProducts && (
+              <div className="rounded-xl bg-white border border-gray-200 p-4 shadow-sm">
+                <div className="flex items-center gap-2 mb-3">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                    fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-500">
+                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                    <line x1="12" y1="22.08" x2="12" y2="12" />
+                  </svg>
+                  <span className="text-sm font-semibold text-gray-700">商品データ</span>
+                  <span className="text-xs text-gray-400">（{excelProducts.items.length}商品）</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        {excelProducts.displayKeys.map((key, i) => (
+                          <th key={i} className={`text-xs text-gray-400 font-medium py-2 px-2 ${i === 0 ? 'text-left' : 'text-right'}`}>
+                            {key}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {excelProducts.items.slice(0, 30).map((product, i) => (
+                        <tr key={i} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                          {excelProducts.displayKeys.map((key, j) => {
+                            const val = product[key];
+                            const isName = key === excelProducts.nameKey;
+                            const isNumeric = typeof val === 'number';
+                            return (
+                              <td key={j} className={`py-2 px-2 ${isName ? 'text-left' : 'text-right'} ${isName ? 'text-gray-700 font-medium' : 'text-gray-600'}`}>
+                                {isName ? (
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+                                    {val || '-'}
+                                  </span>
+                                ) : isNumeric ? (
+                                  Number.isInteger(val) ? val.toLocaleString() : val.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                                ) : (
+                                  val || '-'
+                                )}
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                  {excelProducts.items.length > 30 && (
+                    <div className="text-center text-xs text-gray-400 py-2">
+                      他 {excelProducts.items.length - 30} 商品
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* ── Loading Excel data indicator ── */}
+            {loadingExcel && (
+              <div className="text-center text-xs text-gray-400 py-2">
+                商品データを読み込み中...
+              </div>
+            )}
+
+            {/* ── Phase-based Product Breakdown (from csv_metrics) ── */}
             {agg.products.length > 0 && (
               <div className="rounded-xl bg-white border border-gray-200 p-4 shadow-sm">
                 <div className="flex items-center gap-2 mb-3">
@@ -330,7 +612,7 @@ export default function AnalyticsSection({ reports1, videoData }) {
                     <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
                     <line x1="7" y1="7" x2="7.01" y2="7" />
                   </svg>
-                  <span className="text-sm font-semibold text-gray-700">商品別売上</span>
+                  <span className="text-sm font-semibold text-gray-700">商品別売上（フェーズ分析）</span>
                 </div>
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">

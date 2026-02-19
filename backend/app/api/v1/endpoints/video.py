@@ -755,3 +755,122 @@ async def get_video_detail(
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch video detail: {exc}")
+
+
+@router.get("/{video_id}/product-data")
+async def get_video_product_data(
+    video_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Fetch and parse the product Excel file for a video.
+    Returns parsed product data as JSON.
+    """
+    try:
+        import httpx
+        import tempfile
+        import os
+
+        # Get video's excel_product_blob_url
+        result = await db.execute(
+            text("SELECT excel_product_blob_url, excel_trend_blob_url FROM videos WHERE id = :vid"),
+            {"vid": video_id},
+        )
+        row = result.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Video not found")
+
+        product_url = row[0]
+        trend_url = row[1]
+
+        response_data = {
+            "products": [],
+            "trends": [],
+            "has_product_data": False,
+            "has_trend_data": False,
+        }
+
+        # Parse product Excel
+        if product_url:
+            try:
+                import openpyxl
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.get(product_url)
+                    if resp.status_code == 200:
+                        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+                            f.write(resp.content)
+                            tmp_path = f.name
+
+                        try:
+                            wb = openpyxl.load_workbook(tmp_path, read_only=True, data_only=True)
+                            ws = wb.active
+                            if ws:
+                                rows = list(ws.iter_rows(values_only=True))
+                                if len(rows) >= 2:
+                                    headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(rows[0])]
+                                    for row in rows[1:]:
+                                        if all(v is None for v in row):
+                                            continue
+                                        product = {}
+                                        for i, val in enumerate(row):
+                                            if i < len(headers):
+                                                # Convert to serializable types
+                                                if val is None:
+                                                    product[headers[i]] = None
+                                                elif isinstance(val, (int, float)):
+                                                    product[headers[i]] = val
+                                                else:
+                                                    product[headers[i]] = str(val)
+                                        response_data["products"].append(product)
+                                    response_data["has_product_data"] = len(response_data["products"]) > 0
+                            wb.close()
+                        finally:
+                            os.unlink(tmp_path)
+            except Exception as e:
+                logger.warning(f"Failed to parse product Excel: {e}")
+
+        # Parse trend Excel
+        if trend_url:
+            try:
+                import openpyxl
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    resp = await client.get(trend_url)
+                    if resp.status_code == 200:
+                        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+                            f.write(resp.content)
+                            tmp_path = f.name
+
+                        try:
+                            wb = openpyxl.load_workbook(tmp_path, read_only=True, data_only=True)
+                            ws = wb.active
+                            if ws:
+                                rows = list(ws.iter_rows(values_only=True))
+                                if len(rows) >= 2:
+                                    headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(rows[0])]
+                                    for row in rows[1:]:
+                                        if all(v is None for v in row):
+                                            continue
+                                        trend = {}
+                                        for i, val in enumerate(row):
+                                            if i < len(headers):
+                                                if val is None:
+                                                    trend[headers[i]] = None
+                                                elif isinstance(val, (int, float)):
+                                                    trend[headers[i]] = val
+                                                else:
+                                                    trend[headers[i]] = str(val)
+                                        response_data["trends"].append(trend)
+                                    response_data["has_trend_data"] = len(response_data["trends"]) > 0
+                            wb.close()
+                        finally:
+                            os.unlink(tmp_path)
+            except Exception as e:
+                logger.warning(f"Failed to parse trend Excel: {e}")
+
+        return response_data
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to fetch product data: {exc}")
