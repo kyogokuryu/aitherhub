@@ -15,6 +15,8 @@ export default function AnalyticsSection({ reports1, videoData }) {
   const [collapsed, setCollapsed] = useState(false);
   const [excelData, setExcelData] = useState(null);
   const [loadingExcel, setLoadingExcel] = useState(false);
+  const [productCollapsed, setProductCollapsed] = useState(true);
+  const [phaseProductCollapsed, setPhaseProductCollapsed] = useState(true);
 
   // ── Fetch Excel product/trend data ────────────────────────────
   useEffect(() => {
@@ -539,60 +541,76 @@ export default function AnalyticsSection({ reports1, videoData }) {
 
             {/* ── Excel Product Data Table ── */}
             {excelProducts && (
-              <div className="rounded-xl bg-white border border-gray-200 p-4 shadow-sm">
-                <div className="flex items-center gap-2 mb-3">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-500">
-                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
-                    <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
-                    <line x1="12" y1="22.08" x2="12" y2="12" />
-                  </svg>
-                  <span className="text-sm font-semibold text-gray-700">商品データ</span>
-                  <span className="text-xs text-gray-400">（{excelProducts.items.length}商品）</span>
+              <div className="rounded-xl bg-white border border-gray-200 shadow-sm">
+                <div
+                  onClick={() => setProductCollapsed((s) => !s)}
+                  className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                      fill="none" stroke="currentColor" strokeWidth="2" className="text-emerald-500">
+                      <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
+                      <polyline points="3.27 6.96 12 12.01 20.73 6.96" />
+                      <line x1="12" y1="22.08" x2="12" y2="12" />
+                    </svg>
+                    <span className="text-sm font-semibold text-gray-700">商品データ</span>
+                    <span className="text-xs text-gray-400">（{excelProducts.items.length}商品）</span>
+                  </div>
+                  <button type="button" className="text-gray-400 p-1 rounded focus:outline-none transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="1.5"
+                      className={`w-5 h-5 transform transition-transform duration-200 ${!productCollapsed ? "rotate-180" : ""}`}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-100">
-                        {excelProducts.displayKeys.map((key, i) => (
-                          <th key={i} className={`text-xs text-gray-400 font-medium py-2 px-2 ${i === 0 ? 'text-left' : 'text-right'}`}>
-                            {key}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {excelProducts.items.slice(0, 30).map((product, i) => (
-                        <tr key={i} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
-                          {excelProducts.displayKeys.map((key, j) => {
-                            const val = product[key];
-                            const isName = key === excelProducts.nameKey;
-                            const isNumeric = typeof val === 'number';
-                            return (
-                              <td key={j} className={`py-2 px-2 ${isName ? 'text-left' : 'text-right'} ${isName ? 'text-gray-700 font-medium' : 'text-gray-600'}`}>
-                                {isName ? (
-                                  <span className="inline-flex items-center gap-1.5">
-                                    <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
-                                    {val || '-'}
-                                  </span>
-                                ) : isNumeric ? (
-                                  Number.isInteger(val) ? val.toLocaleString() : val.toLocaleString(undefined, { maximumFractionDigits: 2 })
-                                ) : (
-                                  val || '-'
-                                )}
-                              </td>
-                            );
-                          })}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                  {excelProducts.items.length > 30 && (
-                    <div className="text-center text-xs text-gray-400 py-2">
-                      他 {excelProducts.items.length - 30} 商品
+                {!productCollapsed && (
+                  <div className="px-4 pb-4">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-100">
+                            {excelProducts.displayKeys.map((key, i) => (
+                              <th key={i} className={`text-xs text-gray-400 font-medium py-2 px-2 ${i === 0 ? 'text-left' : 'text-right'}`}>
+                                {key}
+                              </th>
+                            ))}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {excelProducts.items.slice(0, 30).map((product, i) => (
+                            <tr key={i} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                              {excelProducts.displayKeys.map((key, j) => {
+                                const val = product[key];
+                                const isName = key === excelProducts.nameKey;
+                                const isNumeric = typeof val === 'number';
+                                return (
+                                  <td key={j} className={`py-2 px-2 ${isName ? 'text-left' : 'text-right'} ${isName ? 'text-gray-700 font-medium' : 'text-gray-600'}`}>
+                                    {isName ? (
+                                      <span className="inline-flex items-center gap-1.5">
+                                        <span className="w-2 h-2 rounded-full bg-emerald-400 flex-shrink-0" />
+                                        {val || '-'}
+                                      </span>
+                                    ) : isNumeric ? (
+                                      Number.isInteger(val) ? val.toLocaleString() : val.toLocaleString(undefined, { maximumFractionDigits: 2 })
+                                    ) : (
+                                      val || '-'
+                                    )}
+                                  </td>
+                                );
+                              })}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                      {excelProducts.items.length > 30 && (
+                        <div className="text-center text-xs text-gray-400 py-2">
+                          他 {excelProducts.items.length - 30} 商品
+                        </div>
+                      )}
                     </div>
-                  )}
-                </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -605,44 +623,60 @@ export default function AnalyticsSection({ reports1, videoData }) {
 
             {/* ── Phase-based Product Breakdown (from csv_metrics) ── */}
             {agg.products.length > 0 && (
-              <div className="rounded-xl bg-white border border-gray-200 p-4 shadow-sm">
-                <div className="flex items-center gap-2 mb-3">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-500">
-                    <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
-                    <line x1="7" y1="7" x2="7.01" y2="7" />
-                  </svg>
-                  <span className="text-sm font-semibold text-gray-700">商品別売上（フェーズ分析）</span>
+              <div className="rounded-xl bg-white border border-gray-200 shadow-sm">
+                <div
+                  onClick={() => setPhaseProductCollapsed((s) => !s)}
+                  className="flex items-center justify-between p-4 cursor-pointer hover:bg-gray-50 transition-all duration-200"
+                >
+                  <div className="flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+                      fill="none" stroke="currentColor" strokeWidth="2" className="text-indigo-500">
+                      <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z" />
+                      <line x1="7" y1="7" x2="7.01" y2="7" />
+                    </svg>
+                    <span className="text-sm font-semibold text-gray-700">商品別売上（フェーズ分析）</span>
+                  </div>
+                  <button type="button" className="text-gray-400 p-1 rounded focus:outline-none transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                      strokeWidth="1.5"
+                      className={`w-5 h-5 transform transition-transform duration-200 ${!phaseProductCollapsed ? "rotate-180" : ""}`}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="border-b border-gray-100">
-                        <th className="text-left text-xs text-gray-400 font-medium py-2 pr-4">商品名</th>
-                        <th className="text-right text-xs text-gray-400 font-medium py-2 px-2">売上</th>
-                        <th className="text-right text-xs text-gray-400 font-medium py-2 px-2">注文</th>
-                        <th className="text-right text-xs text-gray-400 font-medium py-2 px-2">クリック</th>
-                        <th className="text-right text-xs text-gray-400 font-medium py-2 pl-2">登場回数</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {agg.products.map((p, i) => (
-                        <tr key={i} className="border-b border-gray-50 last:border-0">
-                          <td className="py-2 pr-4">
-                            <span className="inline-flex items-center gap-1.5 text-gray-700">
-                              <span className="w-2 h-2 rounded-full bg-indigo-400 flex-shrink-0" />
-                              {p.name}
-                            </span>
-                          </td>
-                          <td className="text-right py-2 px-2 text-gray-700 font-medium">¥{Math.round(p.gmv).toLocaleString()}</td>
-                          <td className="text-right py-2 px-2 text-gray-600">{p.orders}件</td>
-                          <td className="text-right py-2 px-2 text-gray-600">{p.clicks}</td>
-                          <td className="text-right py-2 pl-2 text-gray-500">{p.phases}回</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                {!phaseProductCollapsed && (
+                  <div className="px-4 pb-4">
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="border-b border-gray-100">
+                            <th className="text-left text-xs text-gray-400 font-medium py-2 pr-4">商品名</th>
+                            <th className="text-right text-xs text-gray-400 font-medium py-2 px-2">売上</th>
+                            <th className="text-right text-xs text-gray-400 font-medium py-2 px-2">注文</th>
+                            <th className="text-right text-xs text-gray-400 font-medium py-2 px-2">クリック</th>
+                            <th className="text-right text-xs text-gray-400 font-medium py-2 pl-2">登場回数</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {agg.products.map((p, i) => (
+                            <tr key={i} className="border-b border-gray-50 last:border-0">
+                              <td className="py-2 pr-4">
+                                <span className="inline-flex items-center gap-1.5 text-gray-700">
+                                  <span className="w-2 h-2 rounded-full bg-indigo-400 flex-shrink-0" />
+                                  {p.name}
+                                </span>
+                              </td>
+                              <td className="text-right py-2 px-2 text-gray-700 font-medium">¥{Math.round(p.gmv).toLocaleString()}</td>
+                              <td className="text-right py-2 px-2 text-gray-600">{p.orders}件</td>
+                              <td className="text-right py-2 px-2 text-gray-600">{p.clicks}</td>
+                              <td className="text-right py-2 pl-2 text-gray-500">{p.phases}回</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
