@@ -683,10 +683,10 @@ export default function MainContent({
           <FeedbackPage onBack={onCloseFeedback} />
         ) : shouldShowGlobalVideoLoading ? (
           <div className="w-full flex flex-col items-center justify-center">
-            <div className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm">
+            <div className="rounded-2xl p-8 border transition-all duration-200 border-gray-200 bg-gray-50">
               <div className="flex flex-col items-center text-center space-y-4">
-                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white"></div>
-                <p className="text-white text-sm">読み込み中...</p>
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-600"></div>
+                <p className="text-gray-700 text-sm">読み込み中...</p>
               </div>
             </div>
           </div>
@@ -695,7 +695,7 @@ export default function MainContent({
             <div className="w-full">
               <h4 className="w-full text-center">
                 {window.__t('header').split('\n').map((line, idx, arr) => (
-                  <span key={idx} className="text-white/90 italic text-lg">
+                  <span key={idx} className="text-gray-500 italic text-lg">
                     {line}
                     {idx < arr.length - 1 && <br className="block md:hidden" />}
                   </span>
@@ -705,7 +705,7 @@ export default function MainContent({
             <div className="w-full mt-[20px] [@media(max-height:650px)]:mt-[20px]">
               <h4 className="w-full mb-[22px] text-center">
                 {window.__t('uploadText').split('\n').map((line, idx, arr) => (
-                  <span key={idx} className="text-white text-2xl !font-bold font-cabin">
+                  <span key={idx} className="text-gray-900 text-2xl !font-bold font-cabin">
                     {line}
                     {idx < arr.length - 1 && <br className="block md:hidden" />}
                   </span>
@@ -713,7 +713,7 @@ export default function MainContent({
               </h4>
               <div className="w-full max-w-xl mx-auto">
                 <div
-                  className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm hover:border-white/50 hover:bg-white/10"
+                  className="rounded-2xl p-8 border transition-all duration-200 border-gray-200 bg-gray-50 hover:border-gray-300 hover:bg-gray-100"
                   onDragOver={handleDragOver}
                   onDrop={handleDrop}
                 >
@@ -758,17 +758,17 @@ export default function MainContent({
                 <div className="w-full">
                   <h4 className="w-full text-center">
                     {window.__t('header').split('\n').map((line, idx, arr) => (
-                      <span key={idx} className="text-white/90 italic text-lg">
-                        {line}
-                        {idx < arr.length - 1 && <br className="block md:hidden" />}
-                      </span>
-                    ))}
-                  </h4>
-                </div>
+                      <span key={idx} className="text-gray-500 italic text-lg">
+                    {line}
+                    {idx < arr.length - 1 && <br className="block md:hidden" />}
+                  </span>
+                ))}
+              </h4>
+            </div>
                 <div className="w-full mt-[20px] [@media(max-height:650px)]:mt-[20px]">
                   <h4 className="w-full mb-[22px] text-center">
                     {window.__t('uploadText').split('\n').map((line, idx, arr) => (
-                      <span key={idx} className="text-white text-2xl !font-bold font-cabin">
+                      <span key={idx} className="text-gray-900 text-2xl !font-bold font-cabin">
                         {line}
                         {idx < arr.length - 1 && <br className="block md:hidden" />}
                       </span>
@@ -776,7 +776,7 @@ export default function MainContent({
                   </h4>
                   <div className={`w-full ${(uploading || uploadedVideoId) ? 'max-w-xl' : 'max-w-md'} mx-auto`}>
                     <div
-                      className="rounded-2xl p-8 border transition-all duration-200 border-white/30 bg-white/5 backdrop-blur-sm hover:border-white/50 hover:bg-white/10"
+                      className="rounded-2xl p-8 border transition-all duration-200 border-gray-200 bg-gray-50 hover:border-gray-300 hover:bg-gray-100"
                       onDragOver={handleDragOver}
                       onDrop={handleDrop}
                     >
@@ -843,12 +843,12 @@ export default function MainContent({
                         <>
                           <div className="flex flex-col items-center text-center space-y-4">
                             <div className="text-3xl">🎬</div>
-                            <p className="text-white text-sm font-semibold">クリーン動画 + Excelデータ</p>
+                            <p className="text-gray-800 text-sm font-semibold">クリーン動画 + Excelデータ</p>
 
                             {/* Clean Video File */}
                             <div className="w-full">
                               <label className="block text-left text-xs text-gray-400 mb-1">クリーン動画</label>
-                              <label className="w-full h-[38px] flex items-center justify-center bg-white/10 border border-white/30 rounded-md text-sm text-white cursor-pointer hover:bg-white/20 transition-colors">
+                              <label className="w-full h-[38px] flex items-center justify-center bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 cursor-pointer hover:bg-gray-200 transition-colors">
                                 {cleanVideoFile ? cleanVideoFile.name : "動画を選択"}
                                 <input type="file" accept="video/*" onChange={handleCleanVideoFileSelect} className="hidden" />
                               </label>
@@ -857,7 +857,7 @@ export default function MainContent({
                             {/* Product Excel */}
                             <div className="w-full">
                               <label className="block text-left text-xs text-gray-400 mb-1">商品データ (product.xlsx)</label>
-                              <label className="w-full h-[38px] flex items-center justify-center bg-white/10 border border-white/30 rounded-md text-sm text-white cursor-pointer hover:bg-white/20 transition-colors">
+                              <label className="w-full h-[38px] flex items-center justify-center bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 cursor-pointer hover:bg-gray-200 transition-colors">
                                 {productExcelFile ? productExcelFile.name : "Excelを選択"}
                                 <input type="file" accept=".xlsx,.xls" onChange={handleProductExcelSelect} className="hidden" />
                               </label>
@@ -866,7 +866,7 @@ export default function MainContent({
                             {/* Trend Stats Excel */}
                             <div className="w-full">
                               <label className="block text-left text-xs text-gray-400 mb-1">トレンドデータ (trend_stats.xlsx)</label>
-                              <label className="w-full h-[38px] flex items-center justify-center bg-white/10 border border-white/30 rounded-md text-sm text-white cursor-pointer hover:bg-white/20 transition-colors">
+                              <label className="w-full h-[38px] flex items-center justify-center bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 cursor-pointer hover:bg-gray-200 transition-colors">
                                 {trendExcelFile ? trendExcelFile.name : "Excelを選択"}
                                 <input type="file" accept=".xlsx,.xls" onChange={handleTrendExcelSelect} className="hidden" />
                               </label>
@@ -895,7 +895,7 @@ export default function MainContent({
                             <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-lg">
                               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5e29ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-primary"><path d="M12 3v12" /><path d="m17 8-5-5-5 5" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></svg>
                             </div>
-                            <h5 className="hidden md:inline text-white text-lg font-cabin text-center">
+                            <h5 className="hidden md:inline text-gray-600 text-lg font-cabin text-center">
                               {window.__t('dragDropText')}
                             </h5>
                             <div className="flex flex-col sm:flex-row gap-3">

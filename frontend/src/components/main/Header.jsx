@@ -103,9 +103,7 @@ export default function Header({
             onClick={onOpenSidebar}
             className="block md:hidden w-[19px] h-[16px]"
           />
-          <span className="text-xl font-semibold text-white">
-            Aitherhub
-          </span>
+
         </div>
 
         {/* RIGHT SIDE */}
@@ -116,7 +114,7 @@ export default function Header({
                 <Button
                   size="sm"
                   variant="ghost"
-                  className="text-white/80 hover:text-white hover:bg-white/10 gap-1 max-w-[200px]"
+                  className="text-gray-700 hover:text-gray-900 hover:bg-gray-100 gap-1 max-w-[200px]"
                 >
                   <span className="truncate">{user.email}</span>
                   <ChevronDown className="w-3.5 h-3.5" />

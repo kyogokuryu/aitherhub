@@ -46,13 +46,13 @@ export default function ChatInput({ className = "", onSend, disabled = false }) 
         disabled={disabled}
         onKeyDown={handleKeyDown}
         placeholder={window.__t('askQuestionPlaceholder')}
-        className="text-[18px] leading-[40px] text-white/90 flex-1 h-[50px] pl-[16px] md:pl-[20px] rounded-[12px] border border-white/20 bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/30 focus:bg-white/15 transition-all"
+        className="text-[18px] leading-[40px] text-gray-800 flex-1 h-[50px] pl-[16px] md:pl-[20px] rounded-[12px] border border-gray-300 bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:bg-white transition-all placeholder:text-gray-400"
       />
       <button
         type="button"
         onClick={() => { if (!disabled) handleSend(); }}
         disabled={disabled}
-        className={`flex items-center justify-center w-[50px] h-[50px] rounded-[12px] flex-shrink-0 transition-all ${disabled ? 'opacity-40 cursor-not-allowed bg-white/40' : 'cursor-pointer bg-white hover:bg-white/90'}`}
+        className={`flex items-center justify-center w-[50px] h-[50px] rounded-[12px] flex-shrink-0 transition-all ${disabled ? 'opacity-40 cursor-not-allowed bg-gray-200' : 'cursor-pointer bg-blue-600 hover:bg-blue-700'}`}
       >
         <svg
           xmlns="http://www.w3.org/2000/svg"
@@ -64,7 +64,7 @@ export default function ChatInput({ className = "", onSend, disabled = false }) 
           strokeWidth="2"
           strokeLinecap="round"
           strokeLinejoin="round"
-          className={`w-6 h-6 ${disabled ? 'text-white/40' : 'text-black'}`}
+          className={`w-6 h-6 ${disabled ? 'text-gray-400' : 'text-white'}`}
         >
           <path d="M22 2L11 13"></path>
           <path d="M22 2l-7 20-5-9-9-5 20-7z"></path>

@@ -376,7 +376,7 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
             height="24"
             viewBox="0 0 24 24"
             fill="none"
-            stroke="#ffffff"
+            stroke="#374151"
             strokeWidth="2"
             strokeLinecap="round"
             strokeLinejoin="round"
@@ -454,8 +454,8 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
     if (!videoTitle) return null;
     return (
       <div className="flex justify-center mb-5">
-        <div className="inline-flex items-center px-4 py-2 rounded-full border border-white/30 bg-white/5">
-          <div className="text-sm font-medium whitespace-nowrap text-white">
+        <div className="inline-flex items-center px-4 py-2 rounded-full border border-gray-200 bg-gray-50">
+          <div className="text-sm font-medium whitespace-nowrap text-gray-700">
             {videoTitle}
           </div>
         </div>
@@ -472,13 +472,13 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
       <div className="mb-4 space-y-2">
         <div className="flex items-center gap-3 transition-all duration-500 ease-out">
           {renderStepIcon(uploadStepStatus)}
-          <span className={`text-sm transition-all duration-500 ease-out ${uploadStepStatus === 'current' ? 'text-white font-medium' : 'text-green-500'}`}>
+          <span className={`text-sm transition-all duration-500 ease-out ${uploadStepStatus === 'current' ? 'text-gray-800 font-medium' : 'text-green-600'}`}>
             {uploadStep.label}
           </span>
         </div>
 
         <div className="pt-1 pb-1 text-left">
-          <p className="text-[11px] text-white/45">
+          <p className="text-[11px] text-gray-400">
             {window.__t('analysisSectionHint') || 'アップロード完了後、解析ステップを実行中'}
           </p>
         </div>
@@ -518,8 +518,8 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
               style={{ transitionDelay }}
             >
               {renderStepIcon(stepStatus)}
-              <span className={`text-sm transition-all duration-500 ease-out ${isActive ? 'text-white font-medium' :
-                isCompleted ? 'text-green-500' :
+              <span className={`text-sm transition-all duration-500 ease-out ${isActive ? 'text-gray-800 font-medium' :
+                isCompleted ? 'text-green-600' :
                   'text-gray-400'
                 }`}>
                 {step.label}
@@ -544,7 +544,7 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
       {/* Progress bar */}
       {!isError && smoothProgress >= 0 && (
         <>
-          <div className="w-full h-2 bg-white/20 rounded-full overflow-hidden">
+          <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">
             <div
               className="h-2 rounded-full transition-all duration-500 ease-out bg-linear-to-r from-indigo-500 to-violet-400"
               style={{ width: `${smoothProgress}%` }}
@@ -552,15 +552,15 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
           </div>
           {/* Current status message */}
           <div className="flex items-center justify-between mb-3 mt-2">
-            <span className="text-sm text-white/70">
+            <span className="text-sm text-gray-600">
               {progressLabel}
             </span>
-            <span className="text-sm text-white/70">
+            <span className="text-sm text-gray-600">
               {Math.round(smoothProgress)}%
             </span>
           </div>
 
-          <p className="text-sm text-white/50 mt-5 text-center">
+          <p className="text-sm text-gray-400 mt-5 text-center">
             {window.__t('progressCompleteMessage') || '解析が完了すると、自動的に結果が表示されます。'}
           </p>
 

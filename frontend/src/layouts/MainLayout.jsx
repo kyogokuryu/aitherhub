@@ -142,7 +142,7 @@ export default function MainLayout() {
           <Sidebar {...sidebarProps} />
         </div>
 
-        <main className="w-full md:flex-1 gradient-liveboost text-white">
+        <main className="w-full md:flex-1 bg-white text-gray-900">
           <MainContent {...mainContentProps}>
           </MainContent>
         </main>

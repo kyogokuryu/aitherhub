@@ -4,7 +4,7 @@ export default function Footer({ showChatInput = false }) {
   return (
     <footer className="">
       <div className="w-full p-[14px] max-w-[1024px] mx-auto md:px-6 text-center">
-        <div className="hidden md:inline text-white/50 text-xs font-cabin">
+        <div className="hidden md:inline text-gray-400 text-xs font-cabin">
           動画をアップロードすることにより、Aitherhubの利用規約とガイドラインに同意したものとみなされます。
         </div>
 
