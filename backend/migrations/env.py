@@ -50,6 +50,8 @@ def get_url():
         # If it's just postgresql://, add psycopg2
         database_url = database_url.replace("postgresql://", "postgresql+psycopg2://")
     
+    # Fix ssl parameter for psycopg2 (asyncpg uses ?ssl=require, psycopg2 uses ?sslmode=require)
+    database_url = database_url.replace("?ssl=require", "?sslmode=require")
     return database_url
 
 
