@@ -324,7 +324,7 @@ async def get_videos_by_user_with_clips(
 
         # Get videos with clip counts + sales/duration summary in a single query
         sql = text("""
-            SELECT v.id, v.original_filename, v.status, v.file_size,
+            SELECT v.id, v.original_filename, v.status,
                    v.upload_type, v.created_at, v.updated_at,
                    COALESCE(c.clip_count, 0) as clip_count,
                    COALESCE(c.completed_count, 0) as completed_clip_count,
@@ -357,7 +357,6 @@ async def get_videos_by_user_with_clips(
                 "id": str(row.id),
                 "original_filename": row.original_filename,
                 "status": row.status,
-                "file_size": row.file_size,
                 "upload_type": row.upload_type,
                 "created_at": row.created_at.isoformat() if row.created_at else None,
                 "updated_at": row.updated_at.isoformat() if row.updated_at else None,
