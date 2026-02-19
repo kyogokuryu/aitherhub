@@ -1,5 +1,6 @@
 from typing import List
 import json
+import uuid as uuid_module
 import asyncio
 from datetime import datetime, timedelta, timezone
 
@@ -874,3 +875,302 @@ async def get_video_product_data(
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to fetch product data: {exc}")
+
+
+
+# =========================
+# Clip generation endpoints
+# =========================
+
+@router.post("/{video_id}/clips")
+async def request_clip_generation(
+    video_id: str,
+    request_body: dict,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """
+    Request TikTok-style clip generation for a specific phase.
+    
+    Body:
+    {
+        "phase_index": 0,
+        "time_start": 0.0,
+        "time_end": 51.0
+    }
+    """
+    try:
+        user_id = user.get("user_id") or user.get("id")
+        phase_index = request_body.get("phase_index")
+        time_start = request_body.get("time_start")
+        time_end = request_body.get("time_end")
+
+        if phase_index is None or time_start is None or time_end is None:
+            raise HTTPException(status_code=400, detail="phase_index, time_start, time_end are required")
+
+        time_start = float(time_start)
+        time_end = float(time_end)
+
+        if time_end <= time_start:
+            raise HTTPException(status_code=400, detail="time_end must be greater than time_start")
+
+        # Check if clip already exists for this phase
+        existing_sql = text("""
+            SELECT id, status, clip_url
+            FROM video_clips
+            WHERE video_id = :video_id AND phase_index = :phase_index
+            ORDER BY created_at DESC
+            LIMIT 1
+        """)
+        existing = await db.execute(existing_sql, {"video_id": video_id, "phase_index": phase_index})
+        existing_row = existing.fetchone()
+
+        if existing_row:
+            if existing_row.status == "completed" and existing_row.clip_url:
+                # Already generated - return existing
+                return {
+                    "clip_id": str(existing_row.id),
+                    "status": "completed",
+                    "clip_url": _replace_blob_url_to_cdn(existing_row.clip_url),
+                    "message": "Clip already generated",
+                }
+            elif existing_row.status in ("pending", "processing"):
+                # Already in progress
+                return {
+                    "clip_id": str(existing_row.id),
+                    "status": existing_row.status,
+                    "message": "Clip generation already in progress",
+                }
+            # If failed, create a new one
+
+        # Verify video belongs to user
+        video_sql = text("SELECT id, user_id, original_filename FROM videos WHERE id = :video_id")
+        vres = await db.execute(video_sql, {"video_id": video_id})
+        video_row = vres.fetchone()
+
+        if not video_row:
+            raise HTTPException(status_code=404, detail="Video not found")
+        if video_row.user_id != user_id:
+            raise HTTPException(status_code=403, detail="Not authorized")
+
+        # Get user email for blob path
+        user_sql = text("SELECT email FROM users WHERE id = :user_id")
+        ures = await db.execute(user_sql, {"user_id": user_id})
+        user_row = ures.fetchone()
+        email = user_row.email if user_row else None
+
+        if not email:
+            raise HTTPException(status_code=400, detail="User email not found")
+
+        # Generate download SAS URL for source video
+        from app.services.storage_service import generate_download_sas
+        download_url, _ = await generate_download_sas(
+            email=email,
+            video_id=video_id,
+            filename=video_row.original_filename,
+            expires_in_minutes=1440,
+        )
+
+        # Create clip record
+        clip_id = str(uuid_module.uuid4())
+        insert_sql = text("""
+            INSERT INTO video_clips (id, video_id, user_id, phase_index, time_start, time_end, status)
+            VALUES (:id, :video_id, :user_id, :phase_index, :time_start, :time_end, 'pending')
+        """)
+        await db.execute(insert_sql, {
+            "id": clip_id,
+            "video_id": video_id,
+            "user_id": user_id,
+            "phase_index": phase_index,
+            "time_start": time_start,
+            "time_end": time_end,
+        })
+        await db.commit()
+
+        # Enqueue clip generation job
+        from app.services.queue_service import enqueue_job
+        await enqueue_job({
+            "job_type": "generate_clip",
+            "clip_id": clip_id,
+            "video_id": video_id,
+            "blob_url": download_url,
+            "time_start": time_start,
+            "time_end": time_end,
+        })
+
+        logger.info(f"Clip generation requested: clip_id={clip_id}, video_id={video_id}, phase={phase_index}")
+
+        return {
+            "clip_id": clip_id,
+            "status": "pending",
+            "message": "Clip generation started",
+        }
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"Failed to request clip generation: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to request clip generation: {exc}")
+
+
+@router.get("/{video_id}/clips/{phase_index}")
+async def get_clip_status(
+    video_id: str,
+    phase_index: int,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """Get clip generation status and download URL for a specific phase."""
+    try:
+        user_id = user.get("user_id") or user.get("id")
+
+        sql = text("""
+            SELECT id, status, clip_url, sas_token, sas_expireddate, error_message, created_at
+            FROM video_clips
+            WHERE video_id = :video_id AND phase_index = :phase_index
+            ORDER BY created_at DESC
+            LIMIT 1
+        """)
+        result = await db.execute(sql, {"video_id": video_id, "phase_index": phase_index})
+        row = result.fetchone()
+
+        if not row:
+            return {
+                "status": "not_found",
+                "message": "No clip found for this phase",
+            }
+
+        response = {
+            "clip_id": str(row.id),
+            "status": row.status,
+        }
+
+        if row.status == "completed" and row.clip_url:
+            # Generate or reuse SAS download URL
+            clip_download_url = None
+
+            # Check if existing SAS is still valid
+            if row.sas_token and row.sas_expireddate:
+                now = datetime.now(timezone.utc)
+                expiry = row.sas_expireddate
+                if expiry.tzinfo is None:
+                    expiry = expiry.replace(tzinfo=timezone.utc)
+                if expiry > now:
+                    clip_download_url = row.sas_token
+
+            if not clip_download_url:
+                # Generate new SAS URL for clip
+                try:
+                    # Get user email
+                    user_sql = text("SELECT email FROM users WHERE id = :user_id")
+                    ures = await db.execute(user_sql, {"user_id": user_id})
+                    user_row = ures.fetchone()
+
+                    if user_row:
+                        # Extract blob path from clip_url
+                        from app.services.storage_service import generate_download_sas
+                        # Parse the clip blob name from the URL
+                        clip_url = row.clip_url
+                        # clip_url format: https://account.blob.core.windows.net/container/email/video_id/clips/clip_X_Y.mp4
+                        parts = clip_url.split("/")
+                        # Find the email/video_id/clips/filename part
+                        try:
+                            container_idx = parts.index("videos") if "videos" in parts else -1
+                            if container_idx >= 0 and container_idx + 1 < len(parts):
+                                blob_path = "/".join(parts[container_idx + 1:])
+                                from azure.storage.blob import generate_blob_sas, BlobSasPermissions
+                                import os as _os
+                                conn_str = _os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+                                account_name = ""
+                                account_key = ""
+                                for p in conn_str.split(";"):
+                                    if p.startswith("AccountName="):
+                                        account_name = p.split("=", 1)[1]
+                                    if p.startswith("AccountKey="):
+                                        account_key = p.split("=", 1)[1]
+
+                                if account_name and account_key:
+                                    expiry_dt = datetime.now(timezone.utc) + timedelta(hours=24)
+                                    sas = generate_blob_sas(
+                                        account_name=account_name,
+                                        container_name="videos",
+                                        blob_name=blob_path,
+                                        account_key=account_key,
+                                        permission=BlobSasPermissions(read=True),
+                                        expiry=expiry_dt,
+                                    )
+                                    clip_download_url = f"https://{account_name}.blob.core.windows.net/videos/{blob_path}?{sas}"
+                                    clip_download_url = _replace_blob_url_to_cdn(clip_download_url)
+
+                                    # Cache the SAS token
+                                    update_sql = text("""
+                                        UPDATE video_clips
+                                        SET sas_token = :sas_token, sas_expireddate = :expiry
+                                        WHERE id = :id
+                                    """)
+                                    await db.execute(update_sql, {
+                                        "sas_token": clip_download_url,
+                                        "expiry": expiry_dt,
+                                        "id": row.id,
+                                    })
+                                    await db.commit()
+                        except Exception as e:
+                            logger.warning(f"Failed to parse clip blob path: {e}")
+                except Exception as e:
+                    logger.warning(f"Failed to generate clip SAS: {e}")
+
+            response["clip_url"] = clip_download_url or _replace_blob_url_to_cdn(row.clip_url)
+
+        elif row.status == "failed":
+            response["error_message"] = row.error_message
+
+        return response
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"Failed to get clip status: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to get clip status: {exc}")
+
+
+@router.get("/{video_id}/clips")
+async def list_clips(
+    video_id: str,
+    db: AsyncSession = Depends(get_db),
+    user=Depends(get_current_user),
+):
+    """List all clips for a video."""
+    try:
+        sql = text("""
+            SELECT id, phase_index, time_start, time_end, status, clip_url, created_at
+            FROM video_clips
+            WHERE video_id = :video_id
+            ORDER BY phase_index ASC, created_at DESC
+        """)
+        result = await db.execute(sql, {"video_id": video_id})
+        rows = result.fetchall()
+
+        clips = []
+        seen_phases = set()
+        for row in rows:
+            # Only include the latest clip per phase
+            if row.phase_index in seen_phases:
+                continue
+            seen_phases.add(row.phase_index)
+
+            clip = {
+                "clip_id": str(row.id),
+                "phase_index": row.phase_index,
+                "time_start": row.time_start,
+                "time_end": row.time_end,
+                "status": row.status,
+            }
+            if row.status == "completed" and row.clip_url:
+                clip["clip_url"] = _replace_blob_url_to_cdn(row.clip_url)
+            clips.append(clip)
+
+        return {"clips": clips}
+
+    except Exception as exc:
+        logger.exception(f"Failed to list clips: {exc}")
+        raise HTTPException(status_code=500, detail=f"Failed to list clips: {exc}")

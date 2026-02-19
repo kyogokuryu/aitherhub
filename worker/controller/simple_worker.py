@@ -38,36 +38,72 @@ def poll_and_process():
             payload = json.loads(msg.content)
             print(f"[worker] Received job: {payload}")
             
-            video_id = payload.get("video_id")
-            blob_url = payload.get("blob_url")
-            
-            if not video_id or not blob_url:
-                print("[worker] Invalid payload, skipping")
-                client.delete_message(msg.id, msg.pop_receipt)
-                return
-            
-            # Run batch process_video.py
-            print(f"[worker] Starting batch for video_id={video_id}")
-            cmd = [
-                sys.executable,
-                os.path.join(BATCH_DIR, "process_video.py"),
-                "--video-id", video_id,
-                "--blob-url", blob_url,
-            ]
+            job_type = payload.get("job_type", "video_analysis")
             
             client.delete_message(msg.id, msg.pop_receipt)
 
-            result = subprocess.run(
-                cmd,
-                cwd=BATCH_DIR,
-                env={**os.environ, "PYTHONPATH": BATCH_DIR},
-                # Don't capture output, let it stream to terminal
-            )
-            
-            if result.returncode == 0:
-                print(f"[worker] Batch completed successfully for {video_id}")
+            if job_type == "generate_clip":
+                # Handle clip generation job
+                clip_id = payload.get("clip_id")
+                video_id = payload.get("video_id")
+                blob_url = payload.get("blob_url")
+                time_start = payload.get("time_start")
+                time_end = payload.get("time_end")
+
+                if not all([clip_id, video_id, blob_url, time_start is not None, time_end is not None]):
+                    print("[worker] Invalid clip payload, skipping")
+                    return
+
+                print(f"[worker] Starting clip generation for clip_id={clip_id}")
+                cmd = [
+                    sys.executable,
+                    os.path.join(BATCH_DIR, "generate_clip.py"),
+                    "--clip-id", clip_id,
+                    "--video-id", video_id,
+                    "--blob-url", blob_url,
+                    "--time-start", str(time_start),
+                    "--time-end", str(time_end),
+                ]
+
+                result = subprocess.run(
+                    cmd,
+                    cwd=BATCH_DIR,
+                    env={**os.environ, "PYTHONPATH": BATCH_DIR},
+                )
+
+                if result.returncode == 0:
+                    print(f"[worker] Clip generation completed for {clip_id}")
+                else:
+                    print(f"[worker] Clip generation failed for {clip_id} with exit code {result.returncode}")
+
             else:
-                print(f"[worker] Batch failed for {video_id} with exit code {result.returncode}")       
+                # Default: video analysis job
+                video_id = payload.get("video_id")
+                blob_url = payload.get("blob_url")
+
+                if not video_id or not blob_url:
+                    print("[worker] Invalid payload, skipping")
+                    return
+
+                print(f"[worker] Starting batch for video_id={video_id}")
+                cmd = [
+                    sys.executable,
+                    os.path.join(BATCH_DIR, "process_video.py"),
+                    "--video-id", video_id,
+                    "--blob-url", blob_url,
+                ]
+
+                result = subprocess.run(
+                    cmd,
+                    cwd=BATCH_DIR,
+                    env={**os.environ, "PYTHONPATH": BATCH_DIR},
+                    # Don't capture output, let it stream to terminal
+                )
+
+                if result.returncode == 0:
+                    print(f"[worker] Batch completed successfully for {video_id}")
+                else:
+                    print(f"[worker] Batch failed for {video_id} with exit code {result.returncode}")       
             
         except Exception as e:
             print(f"[worker] Error processing message: {e}")

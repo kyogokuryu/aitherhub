@@ -459,6 +459,59 @@ class VideoService extends BaseApiService {
       return { products: [], trends: [], has_product_data: false, has_trend_data: false };
     }
   }
+
+  /**
+   * Request clip generation for a specific phase.
+   * @param {string} videoId
+   * @param {number} phaseIndex
+   * @param {number} timeStart - Start time in seconds
+   * @param {number} timeEnd - End time in seconds
+   * @returns {Promise<{clip_id, status, message}>}
+   */
+  async requestClipGeneration(videoId, phaseIndex, timeStart, timeEnd) {
+    try {
+      const response = await this.post(`/api/v1/videos/${videoId}/clips`, {
+        phase_index: phaseIndex,
+        time_start: timeStart,
+        time_end: timeEnd,
+      });
+      return response;
+    } catch (error) {
+      console.error('Failed to request clip generation:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get clip generation status for a specific phase.
+   * @param {string} videoId
+   * @param {number} phaseIndex
+   * @returns {Promise<{clip_id, status, clip_url?}>}
+   */
+  async getClipStatus(videoId, phaseIndex) {
+    try {
+      const response = await this.get(`/api/v1/videos/${videoId}/clips/${phaseIndex}`);
+      return response;
+    } catch (error) {
+      console.warn('Failed to get clip status:', error);
+      return { status: 'not_found' };
+    }
+  }
+
+  /**
+   * List all clips for a video.
+   * @param {string} videoId
+   * @returns {Promise<{clips: Array}>}
+   */
+  async listClips(videoId) {
+    try {
+      const response = await this.get(`/api/v1/videos/${videoId}/clips`);
+      return response;
+    } catch (error) {
+      console.warn('Failed to list clips:', error);
+      return { clips: [] };
+    }
+  }
 }
 
 export default new VideoService();

@@ -101,6 +101,99 @@ export default function VideoDetail({ videoData }) {
   const [timelineCollapsed, setTimelineCollapsed] = useState(true);
   const [expandedTimeline, setExpandedTimeline] = useState({});
 
+  // Clip generation state: { [phaseIndex]: { status, clip_url, error } }
+  const [clipStates, setClipStates] = useState({});
+  const clipPollingRef = useRef({});
+
+  // Load existing clip statuses when video loads
+  useEffect(() => {
+    if (!videoData?.id) return;
+    (async () => {
+      try {
+        const res = await VideoService.listClips(videoData.id);
+        if (res?.clips && res.clips.length > 0) {
+          const states = {};
+          for (const clip of res.clips) {
+            states[clip.phase_index] = {
+              status: clip.status,
+              clip_url: clip.clip_url || null,
+            };
+          }
+          setClipStates(states);
+        }
+      } catch (e) {
+        // ignore
+      }
+    })();
+    return () => {
+      // Cleanup polling on unmount
+      Object.values(clipPollingRef.current).forEach(clearInterval);
+    };
+  }, [videoData?.id]);
+
+  const handleClipGeneration = async (item, phaseIndex) => {
+    if (!videoData?.id) return;
+    const timeStart = Number(item.time_start);
+    const timeEnd = Number(item.time_end);
+    if (isNaN(timeStart) || isNaN(timeEnd)) return;
+
+    // Set loading state
+    setClipStates(prev => ({
+      ...prev,
+      [phaseIndex]: { status: 'requesting' },
+    }));
+
+    try {
+      const res = await VideoService.requestClipGeneration(videoData.id, phaseIndex, timeStart, timeEnd);
+
+      if (res.status === 'completed' && res.clip_url) {
+        setClipStates(prev => ({
+          ...prev,
+          [phaseIndex]: { status: 'completed', clip_url: res.clip_url },
+        }));
+        return;
+      }
+
+      setClipStates(prev => ({
+        ...prev,
+        [phaseIndex]: { status: res.status || 'pending' },
+      }));
+
+      // Start polling for status
+      if (clipPollingRef.current[phaseIndex]) {
+        clearInterval(clipPollingRef.current[phaseIndex]);
+      }
+      clipPollingRef.current[phaseIndex] = setInterval(async () => {
+        try {
+          const statusRes = await VideoService.getClipStatus(videoData.id, phaseIndex);
+          if (statusRes.status === 'completed' && statusRes.clip_url) {
+            setClipStates(prev => ({
+              ...prev,
+              [phaseIndex]: { status: 'completed', clip_url: statusRes.clip_url },
+            }));
+            clearInterval(clipPollingRef.current[phaseIndex]);
+            delete clipPollingRef.current[phaseIndex];
+          } else if (statusRes.status === 'failed') {
+            setClipStates(prev => ({
+              ...prev,
+              [phaseIndex]: { status: 'failed', error: statusRes.error_message },
+            }));
+            clearInterval(clipPollingRef.current[phaseIndex]);
+            delete clipPollingRef.current[phaseIndex];
+          }
+        } catch (e) {
+          // continue polling
+        }
+      }, 5000); // Poll every 5 seconds
+
+    } catch (e) {
+      setClipStates(prev => ({
+        ...prev,
+        [phaseIndex]: { status: 'failed', error: e.message },
+      }));
+    }
+  };
+
   const scrollToBottom = (smooth = true) => {
     if (chatEndRef.current) {
       try {
@@ -685,6 +778,61 @@ export default function VideoDetail({ videoData }) {
                                     </div>
                                   </div>
                                 )}
+
+                                {/* TikTok Clip Generation Button */}
+                                {item.time_start != null && item.time_end != null && (() => {
+                                  const clipState = clipStates[itemKey];
+                                  const isLoading = clipState?.status === 'requesting' || clipState?.status === 'pending' || clipState?.status === 'processing';
+                                  const isCompleted = clipState?.status === 'completed' && clipState?.clip_url;
+                                  const isFailed = clipState?.status === 'failed';
+
+                                  return (
+                                    <div className="flex items-center gap-3 pt-3 mt-3 border-t border-gray-200">
+                                      <div className="text-purple-500">
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 flex-shrink-0">
+                                          <path d="M12 2v4"/><path d="m15.2 7.6 2.4-2.4"/><path d="M18 12h4"/><path d="m15.2 16.4 2.4 2.4"/><path d="M12 18v4"/><path d="m4.4 19.6 2.4-2.4"/><path d="M2 12h4"/><path d="m4.4 4.4 2.4 2.4"/>
+                                        </svg>
+                                      </div>
+                                      {isCompleted ? (
+                                        <a
+                                          href={clipState.clip_url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-medium hover:from-purple-600 hover:to-pink-600 transition-all shadow-sm"
+                                          onClick={(e) => e.stopPropagation()}
+                                        >
+                                          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+                                          </svg>
+                                          切り抜きをダウンロード
+                                        </a>
+                                      ) : isLoading ? (
+                                        <div className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-100 text-gray-500 text-xs font-medium">
+                                          <div className="w-3 h-3 rounded-full border-2 border-gray-300 border-t-purple-500 animate-spin" />
+                                          切り抜き生成中...
+                                        </div>
+                                      ) : (
+                                        <>
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              handleClipGeneration(item, itemKey);
+                                            }}
+                                            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-medium hover:from-purple-600 hover:to-pink-600 transition-all shadow-sm hover:shadow-md"
+                                          >
+                                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                              <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"/><line x1="7" y1="2" x2="7" y2="22"/><line x1="17" y1="2" x2="17" y2="22"/><line x1="2" y1="12" x2="22" y2="12"/><line x1="2" y1="7" x2="7" y2="7"/><line x1="2" y1="17" x2="7" y2="17"/><line x1="17" y1="7" x2="22" y2="7"/><line x1="17" y1="17" x2="22" y2="17"/>
+                                            </svg>
+                                            TikTok切り抜きを生成
+                                          </button>
+                                          {isFailed && (
+                                            <span className="text-red-500 text-xs">生成に失敗しました。再試行してください。</span>
+                                          )}
+                                        </>
+                                      )}
+                                    </div>
+                                  );
+                                })()}
                               </div>
                             )}
                           </div>
