@@ -155,7 +155,7 @@ async def get_all_feedbacks(
                 v.user_id,
                 u.email as user_email
             FROM video_phases vp
-            JOIN videos v ON vp.video_id = CAST(v.id AS TEXT)
+            JOIN videos v ON CAST(vp.video_id AS UUID) = v.id
             LEFT JOIN users u ON v.user_id = u.id
             WHERE vp.user_rating IS NOT NULL
             ORDER BY vp.rated_at DESC NULLS LAST
