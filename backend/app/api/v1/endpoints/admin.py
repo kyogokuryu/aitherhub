@@ -131,6 +131,27 @@ async def get_dashboard_stats(
     return await _get_dashboard_data(db)
 
 
+@router.get("/debug-schema")
+async def debug_schema(
+    x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
+    db: AsyncSession = Depends(get_db),
+):
+    """Temporary debug endpoint to check actual DB schema."""
+    expected_key = f"{ADMIN_ID}:{ADMIN_PASS}"
+    if x_admin_key != expected_key:
+        raise HTTPException(status_code=403, detail="Invalid admin credentials")
+    results = {}
+    for table in ["videos", "users", "video_phases"]:
+        try:
+            r = await db.execute(text(
+                f"SELECT column_name FROM information_schema.columns WHERE table_name = '{table}' ORDER BY ordinal_position"
+            ))
+            results[table] = [row[0] for row in r.fetchall()]
+        except Exception as e:
+            results[table] = f"Error: {e}"
+    return results
+
+
 @router.get("/dashboard-public")
 async def get_dashboard_stats_public(
     x_admin_key: Optional[str] = Header(None, alias="X-Admin-Key"),
