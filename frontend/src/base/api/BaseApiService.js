@@ -135,6 +135,11 @@ export default class BaseApiService {
     return res.data;
   }
 
+  async put(url, data, config = {}) {
+    const res = await this.client.put(url, data, config);
+    return res.data;
+  }
+
   async patch(url, data, config = {}) {
     const res = await this.client.patch(url, data, config);
     return res.data;
