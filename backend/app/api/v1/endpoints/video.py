@@ -504,54 +504,50 @@ async def get_video_detail(
         insight_rows = res.fetchall()
 
         # load video_phases (to get phase_description, time_start, time_end)
-        # Check if product_names column exists in video_phases table
+        # Try with product_names column first, fall back without it
+        sql_phases_with_pn = text("""
+            SELECT phase_index, phase_description, time_start, time_end,
+                   COALESCE(gmv, 0) as gmv,
+                   COALESCE(order_count, 0) as order_count,
+                   COALESCE(viewer_count, 0) as viewer_count,
+                   COALESCE(like_count, 0) as like_count,
+                   COALESCE(comment_count, 0) as comment_count,
+                   COALESCE(share_count, 0) as share_count,
+                   COALESCE(new_followers, 0) as new_followers,
+                   COALESCE(product_clicks, 0) as product_clicks,
+                   COALESCE(conversion_rate, 0) as conversion_rate,
+                   COALESCE(gpm, 0) as gpm,
+                   COALESCE(importance_score, 0) as importance_score,
+                   product_names
+            FROM video_phases
+            WHERE video_id = :video_id
+        """)
+        sql_phases_without_pn = text("""
+            SELECT phase_index, phase_description, time_start, time_end,
+                   COALESCE(gmv, 0) as gmv,
+                   COALESCE(order_count, 0) as order_count,
+                   COALESCE(viewer_count, 0) as viewer_count,
+                   COALESCE(like_count, 0) as like_count,
+                   COALESCE(comment_count, 0) as comment_count,
+                   COALESCE(share_count, 0) as share_count,
+                   COALESCE(new_followers, 0) as new_followers,
+                   COALESCE(product_clicks, 0) as product_clicks,
+                   COALESCE(conversion_rate, 0) as conversion_rate,
+                   COALESCE(gpm, 0) as gpm,
+                   COALESCE(importance_score, 0) as importance_score
+            FROM video_phases
+            WHERE video_id = :video_id
+        """)
+
         has_product_names = False
         try:
-            col_check = await db.execute(text("""
-                SELECT column_name FROM information_schema.columns
-                WHERE table_name = 'video_phases' AND column_name = 'product_names'
-            """))
-            has_product_names = col_check.fetchone() is not None
+            pres = await db.execute(sql_phases_with_pn, {"video_id": video_id})
+            phase_rows = pres.fetchall()
+            has_product_names = True
         except Exception:
-            pass
-
-        if has_product_names:
-            sql_phases = text("""
-                SELECT phase_index, phase_description, time_start, time_end,
-                       COALESCE(gmv, 0) as gmv,
-                       COALESCE(order_count, 0) as order_count,
-                       COALESCE(viewer_count, 0) as viewer_count,
-                       COALESCE(like_count, 0) as like_count,
-                       COALESCE(comment_count, 0) as comment_count,
-                       COALESCE(share_count, 0) as share_count,
-                       COALESCE(new_followers, 0) as new_followers,
-                       COALESCE(product_clicks, 0) as product_clicks,
-                       COALESCE(conversion_rate, 0) as conversion_rate,
-                       COALESCE(gpm, 0) as gpm,
-                       COALESCE(importance_score, 0) as importance_score,
-                       product_names
-                FROM video_phases
-                WHERE video_id = :video_id
-            """)
-        else:
-            sql_phases = text("""
-                SELECT phase_index, phase_description, time_start, time_end,
-                       COALESCE(gmv, 0) as gmv,
-                       COALESCE(order_count, 0) as order_count,
-                       COALESCE(viewer_count, 0) as viewer_count,
-                       COALESCE(like_count, 0) as like_count,
-                       COALESCE(comment_count, 0) as comment_count,
-                       COALESCE(share_count, 0) as share_count,
-                       COALESCE(new_followers, 0) as new_followers,
-                       COALESCE(product_clicks, 0) as product_clicks,
-                       COALESCE(conversion_rate, 0) as conversion_rate,
-                       COALESCE(gpm, 0) as gpm,
-                       COALESCE(importance_score, 0) as importance_score
-                FROM video_phases
-                WHERE video_id = :video_id
-            """)
-        pres = await db.execute(sql_phases, {"video_id": video_id})
-        phase_rows = pres.fetchall()
+            await db.rollback()
+            pres = await db.execute(sql_phases_without_pn, {"video_id": video_id})
+            phase_rows = pres.fetchall()
 
         phase_map = {}
         for r in phase_rows:
