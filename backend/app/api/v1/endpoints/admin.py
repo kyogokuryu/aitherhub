@@ -40,20 +40,12 @@ async def _get_dashboard_data(db: AsyncSession) -> dict:
     pending_videos = total_videos - analyzed_videos
 
     try:
+        # time_end is stored as double precision (seconds)
         r = await db.execute(text("""
             SELECT COALESCE(SUM(max_sec), 0) FROM (
-                SELECT video_id, MAX(
-                    CASE
-                        WHEN time_end IS NOT NULL
-                             AND time_end != ''
-                             AND time_end LIKE '%:%:%'
-                        THEN CAST(SPLIT_PART(time_end, ':', 1) AS INTEGER) * 3600
-                           + CAST(SPLIT_PART(time_end, ':', 2) AS INTEGER) * 60
-                           + CAST(SPLIT_PART(SPLIT_PART(time_end, ':', 3), '.', 1) AS INTEGER)
-                        ELSE 0
-                    END
-                ) as max_sec
+                SELECT video_id, MAX(COALESCE(time_end, 0)) as max_sec
                 FROM video_phases
+                WHERE time_end IS NOT NULL
                 GROUP BY video_id
             ) sub
         """))
