@@ -767,23 +767,32 @@ async def get_video_product_data(
     """
     Fetch and parse the product Excel file for a video.
     Returns parsed product data as JSON.
+    Uses SAS tokens to access Azure Blob Storage (public access is disabled).
     """
     try:
         import httpx
         import tempfile
         import os
+        from azure.storage.blob import generate_blob_sas, BlobSasPermissions
+        from datetime import timedelta
 
-        # Get video's excel_product_blob_url
+        # Get video's excel_product_blob_url and user email
         result = await db.execute(
-            text("SELECT excel_product_blob_url, excel_trend_blob_url FROM videos WHERE id = :vid"),
+            text("""
+                SELECT v.excel_product_blob_url, v.excel_trend_blob_url, u.email
+                FROM videos v
+                JOIN users u ON v.user_id = u.id
+                WHERE v.id = :vid
+            """),
             {"vid": video_id},
         )
         row = result.fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Video not found")
 
-        product_url = row[0]
-        trend_url = row[1]
+        product_blob_url = row[0]
+        trend_blob_url = row[1]
+        email = row[2]
 
         response_data = {
             "products": [],
@@ -792,80 +801,104 @@ async def get_video_product_data(
             "has_trend_data": False,
         }
 
-        # Parse product Excel
-        if product_url:
-            try:
-                import openpyxl
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.get(product_url)
-                    if resp.status_code == 200:
-                        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
-                            f.write(resp.content)
-                            tmp_path = f.name
+        # Helper: generate SAS download URL from blob URL
+        def _generate_sas_url(blob_url: str) -> str:
+            """Generate a SAS-signed download URL from a raw blob URL."""
+            conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+            account_name = ""
+            account_key = ""
+            for part in conn_str.split(";"):
+                if part.startswith("AccountName="):
+                    account_name = part.split("=", 1)[1]
+                elif part.startswith("AccountKey="):
+                    account_key = part.split("=", 1)[1]
 
-                        try:
-                            wb = openpyxl.load_workbook(tmp_path, read_only=True, data_only=True)
-                            ws = wb.active
-                            if ws:
-                                rows = list(ws.iter_rows(values_only=True))
-                                if len(rows) >= 2:
-                                    headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(rows[0])]
-                                    for row in rows[1:]:
-                                        if all(v is None for v in row):
-                                            continue
-                                        product = {}
-                                        for i, val in enumerate(row):
-                                            if i < len(headers):
-                                                # Convert to serializable types
-                                                if val is None:
-                                                    product[headers[i]] = None
-                                                elif isinstance(val, (int, float)):
-                                                    product[headers[i]] = val
-                                                else:
-                                                    product[headers[i]] = str(val)
-                                        response_data["products"].append(product)
-                                    response_data["has_product_data"] = len(response_data["products"]) > 0
-                            wb.close()
-                        finally:
-                            os.unlink(tmp_path)
+            # Extract blob path from URL
+            # URL format: https://account.blob.core.windows.net/videos/email/video_id/excel/filename.xlsx
+            try:
+                from urllib.parse import urlparse, unquote
+                parsed = urlparse(blob_url)
+                path = unquote(parsed.path)  # /videos/email/video_id/excel/filename.xlsx
+                # Remove leading /videos/ to get blob_name
+                if path.startswith("/videos/"):
+                    blob_name = path[len("/videos/"):]
+                else:
+                    blob_name = path.lstrip("/")
+                    # Remove container name if present
+                    if blob_name.startswith("videos/"):
+                        blob_name = blob_name[len("videos/"):]
+            except Exception:
+                # Fallback: construct blob name from email/video_id
+                filename = blob_url.split("/")[-1].split("?")[0]
+                blob_name = f"{email}/{video_id}/excel/{filename}"
+
+            expiry = datetime.now(timezone.utc) + timedelta(minutes=30)
+            sas = generate_blob_sas(
+                account_name=account_name,
+                container_name="videos",
+                blob_name=blob_name,
+                account_key=account_key,
+                permission=BlobSasPermissions(read=True),
+                expiry=expiry,
+            )
+            return f"https://{account_name}.blob.core.windows.net/videos/{blob_name}?{sas}"
+
+        # Helper: download and parse Excel file
+        async def _parse_excel(blob_url: str) -> list:
+            """Download Excel via SAS URL and parse rows into list of dicts."""
+            sas_url = _generate_sas_url(blob_url)
+            import openpyxl
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.get(sas_url)
+                if resp.status_code != 200:
+                    logger.warning(f"Failed to download Excel (HTTP {resp.status_code}): {sas_url[:100]}...")
+                    return []
+
+                with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
+                    f.write(resp.content)
+                    tmp_path = f.name
+
+                try:
+                    wb = openpyxl.load_workbook(tmp_path, read_only=True, data_only=True)
+                    ws = wb.active
+                    items = []
+                    if ws:
+                        rows_data = list(ws.iter_rows(values_only=True))
+                        if len(rows_data) >= 2:
+                            headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(rows_data[0])]
+                            for data_row in rows_data[1:]:
+                                if all(v is None for v in data_row):
+                                    continue
+                                item = {}
+                                for i, val in enumerate(data_row):
+                                    if i < len(headers):
+                                        if val is None:
+                                            item[headers[i]] = None
+                                        elif isinstance(val, (int, float)):
+                                            item[headers[i]] = val
+                                        else:
+                                            item[headers[i]] = str(val)
+                                items.append(item)
+                    wb.close()
+                    return items
+                finally:
+                    os.unlink(tmp_path)
+
+        # Parse product Excel
+        if product_blob_url:
+            try:
+                products = await _parse_excel(product_blob_url)
+                response_data["products"] = products
+                response_data["has_product_data"] = len(products) > 0
             except Exception as e:
                 logger.warning(f"Failed to parse product Excel: {e}")
 
         # Parse trend Excel
-        if trend_url:
+        if trend_blob_url:
             try:
-                import openpyxl
-                async with httpx.AsyncClient(timeout=30.0) as client:
-                    resp = await client.get(trend_url)
-                    if resp.status_code == 200:
-                        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as f:
-                            f.write(resp.content)
-                            tmp_path = f.name
-
-                        try:
-                            wb = openpyxl.load_workbook(tmp_path, read_only=True, data_only=True)
-                            ws = wb.active
-                            if ws:
-                                rows = list(ws.iter_rows(values_only=True))
-                                if len(rows) >= 2:
-                                    headers = [str(h).strip() if h else f"col_{i}" for i, h in enumerate(rows[0])]
-                                    for row in rows[1:]:
-                                        if all(v is None for v in row):
-                                            continue
-                                        trend = {}
-                                        for i, val in enumerate(row):
-                                            if i < len(headers):
-                                                if val is None:
-                                                    trend[headers[i]] = None
-                                                elif isinstance(val, (int, float)):
-                                                    trend[headers[i]] = val
-                                                else:
-                                                    trend[headers[i]] = str(val)
-                                        response_data["trends"].append(trend)
-                                    response_data["has_trend_data"] = len(response_data["trends"]) > 0
-                            wb.close()
-                        finally:
-                            os.unlink(tmp_path)
+                trends = await _parse_excel(trend_blob_url)
+                response_data["trends"] = trends
+                response_data["has_trend_data"] = len(trends) > 0
             except Exception as e:
                 logger.warning(f"Failed to parse trend Excel: {e}")
 
@@ -874,6 +907,7 @@ async def get_video_product_data(
     except HTTPException:
         raise
     except Exception as exc:
+        logger.error(f"Failed to fetch product data: {exc}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch product data: {exc}")
 
 
