@@ -268,7 +268,13 @@ export default function MainContent({
         onUploadSuccess(video_id);
       }
     } catch (error) {
-      const errorMsg = error?.message || window.__t('uploadFailedMessage');
+      console.error('[Upload] Upload failed:', error);
+      let errorMsg = error?.message || window.__t('uploadFailedMessage');
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('Network') || errorMsg.includes('sending request')) {
+        errorMsg = 'ネットワークエラーが発生しました。インターネット接続を確認して、もう一度お試しください。';
+      } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
+        errorMsg = 'アップロードがタイムアウトしました。安定したネットワーク環境でお試しください。';
+      }
       toast.error(errorMsg);
     } finally {
       clearActiveResumeUploadStorageKey();
@@ -404,7 +410,13 @@ export default function MainContent({
         onUploadSuccess(video_id);
       }
     } catch (error) {
-      const errorMsg = error?.message || window.__t('uploadFailedMessage');
+      console.error('[Upload] Resume upload failed:', error);
+      let errorMsg = error?.message || window.__t('uploadFailedMessage');
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('Network') || errorMsg.includes('sending request')) {
+        errorMsg = 'ネットワークエラーが発生しました。インターネット接続を確認して、もう一度お試しください。';
+      } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
+        errorMsg = 'アップロードがタイムアウトしました。安定したネットワーク環境でお試しください。';
+      }
       toast.error(errorMsg);
     } finally {
       clearActiveResumeUploadStorageKey();
@@ -461,7 +473,13 @@ export default function MainContent({
         onUploadSuccess(video_id);
       }
     } catch (error) {
-      const errorMsg = error?.message || window.__t('uploadFailedMessage');
+      console.error('[Upload] Upload failed:', error);
+      let errorMsg = error?.message || window.__t('uploadFailedMessage');
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('Network') || errorMsg.includes('sending request')) {
+        errorMsg = 'ネットワークエラーが発生しました。インターネット接続を確認して、もう一度お試しください。';
+      } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
+        errorMsg = 'アップロードがタイムアウトしました。安定したネットワーク環境でお試しください。';
+      }
       toast.error(errorMsg);
     } finally {
       clearActiveResumeUploadStorageKey();

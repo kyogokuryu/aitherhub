@@ -8,6 +8,8 @@ const DB_NAME = 'VideoUploadDB';
 const STORE_NAME = 'uploads';
 const BLOCK_SIZE = 4 * 1024 * 1024; // 4MB blocks
 const MAX_CONCURRENT_UPLOADS = 4;
+const MAX_RETRIES = 3;
+const RETRY_DELAY_MS = 2000; // 2 seconds base delay
 
 class UploadService extends BaseApiService {
   constructor() {
@@ -73,16 +75,52 @@ class UploadService extends BaseApiService {
   }
 
   /**
+   * Retry helper with exponential backoff
+   * @param {Function} fn - Async function to retry
+   * @param {number} maxRetries - Maximum number of retries
+   * @param {string} label - Label for logging
+   * @returns {Promise<*>}
+   */
+  async retryWithBackoff(fn, maxRetries = MAX_RETRIES, label = 'operation') {
+    let lastError;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await fn();
+      } catch (error) {
+        lastError = error;
+        const isNetworkError = !error.response && (
+          error.message?.includes('Failed to fetch') ||
+          error.message?.includes('Network') ||
+          error.message?.includes('fetch') ||
+          error.message?.includes('ECONNRESET') ||
+          error.message?.includes('timeout') ||
+          error.code === 'ERR_NETWORK'
+        );
+
+        if (attempt < maxRetries && isNetworkError) {
+          const delay = RETRY_DELAY_MS * Math.pow(2, attempt); // exponential backoff
+          console.warn(`[UploadService] ${label} failed (attempt ${attempt + 1}/${maxRetries + 1}), retrying in ${delay}ms...`, error.message);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          break;
+        }
+      }
+    }
+    throw lastError;
+  }
+
+  /**
    * Generate SAS upload URL from backend
    * @param {string} email - User email
    * @param {string} filename - File name to upload
    * @returns {Promise<{video_id, upload_url, blob_url, expires_at}>}
    */
   async generateUploadUrl(email, filename) {
-    return await this.post(URL_CONSTANTS.GENERATE_UPLOAD_URL, {
-      email,
-      filename,
-    });
+    return await this.retryWithBackoff(
+      () => this.post(URL_CONSTANTS.GENERATE_UPLOAD_URL, { email, filename }),
+      MAX_RETRIES,
+      'generateUploadUrl'
+    );
   }
 
   /**
@@ -204,18 +242,16 @@ class UploadService extends BaseApiService {
           if (current >= pendingBlocks.length) break;
           const block = pendingBlocks[current];
 
-          try {
+          // Retry each block upload with exponential backoff
+          await this.retryWithBackoff(async () => {
             const blockSize = block.end - block.start;
             await blockBlobClient.stageBlock(block.id, block.data, blockSize);
+          }, MAX_RETRIES, `stageBlock[${block.index}]`);
 
-            await safeMarkUploaded(block.id);
-            uploadedSet.add(block.id);
-            completed += 1;
-            updateProgress();
-          } catch (error) {
-            console.error(`Failed to upload block ${block.id}:`, error);
-            throw error;
-          }
+          await safeMarkUploaded(block.id);
+          uploadedSet.add(block.id);
+          completed += 1;
+          updateProgress();
         }
       };
 
@@ -223,21 +259,18 @@ class UploadService extends BaseApiService {
       await Promise.all(Array.from({ length: workerCount }, uploadWorker));
     }
 
-    // 4. Commit all blocks
-    try {
+    // 4. Commit all blocks (with retry)
+    await this.retryWithBackoff(async () => {
       await blockBlobClient.commitBlockList(blockIds, {
         blobHTTPHeaders: {
           blobContentType: contentType,
           blobCacheControl: 'public, max-age=3600',
         },
       });
-      
-      // Clear metadata after successful commit
-      await this.clearUploadMetadata(uploadId);
-    } catch (error) {
-      console.error('Failed to commit blocks:', error);
-      throw error;
-    }
+    }, MAX_RETRIES, 'commitBlockList');
+    
+    // Clear metadata after successful commit
+    await this.clearUploadMetadata(uploadId);
   }
 
   /**
@@ -259,12 +292,11 @@ class UploadService extends BaseApiService {
       throw new Error(window.__t('sessionExpired'));
     }
 
-    return await this.post(URL_CONSTANTS.UPLOAD_COMPLETE, {
-      email,
-      video_id,
-      filename,
-      upload_id,
-    });
+    return await this.retryWithBackoff(
+      () => this.post(URL_CONSTANTS.UPLOAD_COMPLETE, { email, video_id, filename, upload_id }),
+      MAX_RETRIES,
+      'uploadComplete'
+    );
   }
 
   /**
@@ -276,27 +308,28 @@ class UploadService extends BaseApiService {
    * @returns {Promise<{video_id, product_upload_url, product_blob_url, trend_upload_url, trend_blob_url, expires_at}>}
    */
   async generateExcelUploadUrls(email, video_id, product_filename, trend_filename) {
-    return await this.post(URL_CONSTANTS.GENERATE_EXCEL_UPLOAD_URL, {
-      email,
-      video_id,
-      product_filename,
-      trend_filename,
-    });
+    return await this.retryWithBackoff(
+      () => this.post(URL_CONSTANTS.GENERATE_EXCEL_UPLOAD_URL, { email, video_id, product_filename, trend_filename }),
+      MAX_RETRIES,
+      'generateExcelUploadUrls'
+    );
   }
 
   /**
-   * Upload a single Excel file to Azure Blob Storage
+   * Upload a single Excel file to Azure Blob Storage (with retry)
    * @param {File} file - Excel file to upload
    * @param {string} uploadUrl - SAS URL
    * @returns {Promise<void>}
    */
   async uploadExcelToAzure(file, uploadUrl) {
-    const blockBlobClient = new BlockBlobClient(uploadUrl);
-    await blockBlobClient.uploadData(file, {
-      blobHTTPHeaders: {
-        blobContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      },
-    });
+    await this.retryWithBackoff(async () => {
+      const blockBlobClient = new BlockBlobClient(uploadUrl);
+      await blockBlobClient.uploadData(file, {
+        blobHTTPHeaders: {
+          blobContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        },
+      });
+    }, MAX_RETRIES, 'uploadExcelToAzure');
   }
 
   /**
@@ -318,15 +351,19 @@ class UploadService extends BaseApiService {
     if (TokenManager.isTokenExpired(token)) {
       throw new Error(window.__t('sessionExpired'));
     }
-    return await this.post(URL_CONSTANTS.UPLOAD_COMPLETE, {
-      email,
-      video_id,
-      filename,
-      upload_id,
-      upload_type,
-      excel_product_blob_url,
-      excel_trend_blob_url,
-    });
+    return await this.retryWithBackoff(
+      () => this.post(URL_CONSTANTS.UPLOAD_COMPLETE, {
+        email,
+        video_id,
+        filename,
+        upload_id,
+        upload_type,
+        excel_product_blob_url,
+        excel_trend_blob_url,
+      }),
+      MAX_RETRIES,
+      'uploadCompleteWithType'
+    );
   }
 
   /**
