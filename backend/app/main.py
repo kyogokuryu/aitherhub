@@ -35,31 +35,6 @@ class AppCreator:
                 allow_headers=["*"],
             )
 
-        # Run safe migrations on startup
-        @self.app.on_event("startup")
-        async def run_safe_migrations():
-            """Add missing columns to database tables (idempotent, safe to run repeatedly)."""
-            try:
-                from app.core.db import get_db
-                from sqlalchemy import text
-                async for session in get_db():
-                    # Add compressed_blob_url column if it doesn't exist
-                    await session.execute(text("""
-                        DO $$
-                        BEGIN
-                            IF NOT EXISTS (
-                                SELECT 1 FROM information_schema.columns
-                                WHERE table_name = 'videos' AND column_name = 'compressed_blob_url'
-                            ) THEN
-                                ALTER TABLE videos ADD COLUMN compressed_blob_url TEXT;
-                            END IF;
-                        END $$;
-                    """))
-                    await session.commit()
-                    logger.info("Safe migration check completed: compressed_blob_url column ensured")
-            except Exception as e:
-                logger.warning(f"Safe migration check failed (non-fatal): {e}")
-
         # Health check
         @self.app.get("/")
         async def root():

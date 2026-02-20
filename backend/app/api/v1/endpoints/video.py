@@ -350,7 +350,8 @@ async def get_videos_by_user_with_clips(
                 SELECT video_id,
                        COUNT(*) as memo_count
                 FROM video_phases
-                WHERE user_comment IS NOT NULL AND user_comment != ''
+                WHERE (user_comment IS NOT NULL AND user_comment != '')
+                   OR (user_rating IS NOT NULL AND user_rating > 0)
                 GROUP BY video_id
             ) m ON v.id = m.video_id
             WHERE v.user_id = :user_id

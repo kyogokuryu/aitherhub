@@ -87,6 +87,7 @@ export default function VideoDetail({ videoData }) {
   `;
   const [loading] = useState(false);
   const [error] = useState(null);
+  const [toast, setToast] = useState(null); // { message, type }
   const [chatMessages, setChatMessages] = useState([]);
   const [previewData, setPreviewData] = useState(null); // { url, timeStart, timeEnd, isClipPreview }
   const [, setPreviewLoading] = useState(false);
@@ -154,6 +155,11 @@ export default function VideoDetail({ videoData }) {
     };
   }, [videoData?.id]);
 
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 2000);
+  };
+
   const handleRatePhase = (phaseIndex, rating) => {
     if (!videoData?.id) return;
     const comment = ratingComments[phaseIndex] || '';
@@ -162,10 +168,12 @@ export default function VideoDetail({ videoData }) {
       ...prev,
       [phaseIndex]: { rating, saving: false, saved: true },
     }));
+    showToast(`★${rating} 保存されました`);
     // Fire-and-forget: save in background
     VideoService.ratePhase(videoData.id, phaseIndex, rating, comment)
       .catch(err => {
         console.error('Failed to rate phase:', err);
+        showToast('保存に失敗しました', 'error');
         // Revert on failure
         setPhaseRatings(prev => ({
           ...prev,
@@ -184,10 +192,12 @@ export default function VideoDetail({ videoData }) {
       ...prev,
       [phaseIndex]: { ...prev[phaseIndex], saving: false, saved: true },
     }));
+    showToast('コメント保存されました');
     // Fire-and-forget: save in background
     VideoService.ratePhase(videoData.id, phaseIndex, currentRating, comment)
       .catch(err => {
         console.error('Failed to save comment:', err);
+        showToast('保存に失敗しました', 'error');
         // Revert on failure
         setPhaseRatings(prev => ({
           ...prev,
@@ -573,6 +583,14 @@ export default function VideoDetail({ videoData }) {
   return (
     <div className="overflow-hidden w-full h-full flex flex-col gap-6 p-0 md:overflow-auto lg:p-6">
       <style>{markdownTableStyles}</style>
+      {/* Toast notification */}
+      {toast && (
+        <div className={`fixed top-4 right-4 z-50 px-4 py-2 rounded-lg shadow-lg text-sm font-medium transition-all duration-300 animate-fade-in ${
+          toast.type === 'error' ? 'bg-red-500 text-white' : 'bg-green-500 text-white'
+        }`}>
+          {toast.message}
+        </div>
+      )}
       {/* Video Header */}
       <div className="flex flex-col overflow-hidden md:overflow-auto h-full w-full mx-auto">
         <div className="flex flex-col gap-2 items-center">
