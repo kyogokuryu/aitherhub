@@ -575,283 +575,195 @@ async def get_video_detail(
 ):
     """
         Video detail endpoint returning report 1 data.
-
-        Response shape:
-        {
-            "reports_1": [
-                 { "phase_index": int, "phase_description": str | None, "insight": str }
-            ]
-        }
+        Optimized: single combined query, inline SAS generation, no ORM overhead.
     """
-    try:
-        import time as _time
-        _t0 = _time.monotonic()
-        # verify video exists and ownership
-        video_repo = VideoRepository(lambda: db)
-        video = await video_repo.get_video_by_id(video_id)
-        if not video:
-            raise HTTPException(status_code=404, detail="Video not found")
-        _t1 = _time.monotonic()
-        logger.info(f"[PERF] get_video_by_id: {(_t1-_t0)*1000:.0f}ms")
+    import time as _time
+    import os as _os
+    from azure.storage.blob import generate_blob_sas as _generate_blob_sas, BlobSasPermissions as _BlobSasPermissions
 
-        if current_user and current_user.get("id") != video.user_id:
+    try:
+        _t0 = _time.monotonic()
+
+        # ---- Step 1: Single query to get video + user email ----
+        sql_video = text("""
+            SELECT v.id, v.original_filename, v.status, v.user_id,
+                   v.upload_type, v.excel_product_blob_url, v.excel_trend_blob_url,
+                   v.compressed_blob_url,
+                   u.email
+            FROM videos v
+            JOIN users u ON v.user_id = u.id
+            WHERE v.id = :video_id
+        """)
+        vres = await db.execute(sql_video, {"video_id": video_id})
+        video_row = vres.fetchone()
+        if not video_row:
+            raise HTTPException(status_code=404, detail="Video not found")
+
+        if current_user and current_user.get("id") != video_row.user_id:
             raise HTTPException(status_code=403, detail="Forbidden")
 
-        # load phase_insights
-        sql_insights = text("""
-            SELECT phase_index, insight
-            FROM phase_insights
-            WHERE video_id = :video_id
-            ORDER BY phase_index ASC
+        email = video_row.email
+        compressed_blob = video_row.compressed_blob_url
+        _t1 = _time.monotonic()
+
+        # ---- Step 2: Parallel fetch phase_insights + video_phases + video_insights ----
+        sql_combined = text("""
+            SELECT
+                vp.id as phase_id, vp.phase_index, vp.phase_description,
+                vp.time_start, vp.time_end,
+                COALESCE(vp.gmv, 0) as gmv,
+                COALESCE(vp.order_count, 0) as order_count,
+                COALESCE(vp.viewer_count, 0) as viewer_count,
+                COALESCE(vp.like_count, 0) as like_count,
+                COALESCE(vp.comment_count, 0) as comment_count,
+                COALESCE(vp.share_count, 0) as share_count,
+                COALESCE(vp.new_followers, 0) as new_followers,
+                COALESCE(vp.product_clicks, 0) as product_clicks,
+                COALESCE(vp.conversion_rate, 0) as conversion_rate,
+                COALESCE(vp.gpm, 0) as gpm,
+                COALESCE(vp.importance_score, 0) as importance_score,
+                vp.product_names,
+                vp.user_rating,
+                vp.user_comment,
+                vp.sas_token,
+                vp.sas_expireddate,
+                pi.insight
+            FROM video_phases vp
+            LEFT JOIN phase_insights pi ON pi.video_id = vp.video_id AND pi.phase_index = vp.phase_index
+            WHERE vp.video_id = :video_id
+            ORDER BY vp.phase_index ASC
         """)
 
-        _t2 = _time.monotonic()
-        res = await db.execute(sql_insights, {"video_id": video_id})
-        insight_rows = res.fetchall()
-        _t3 = _time.monotonic()
-        logger.info(f"[PERF] phase_insights query: {(_t3-_t2)*1000:.0f}ms, rows={len(insight_rows)}")
-
-        # load video_phases (to get phase_description, time_start, time_end)
-        # Try with product_names column first, fall back without it
-        sql_phases_with_pn = text("""
-            SELECT id, phase_index, phase_description, time_start, time_end,
-                   COALESCE(gmv, 0) as gmv,
-                   COALESCE(order_count, 0) as order_count,
-                   COALESCE(viewer_count, 0) as viewer_count,
-                   COALESCE(like_count, 0) as like_count,
-                   COALESCE(comment_count, 0) as comment_count,
-                   COALESCE(share_count, 0) as share_count,
-                   COALESCE(new_followers, 0) as new_followers,
-                   COALESCE(product_clicks, 0) as product_clicks,
-                   COALESCE(conversion_rate, 0) as conversion_rate,
-                   COALESCE(gpm, 0) as gpm,
-                   COALESCE(importance_score, 0) as importance_score,
-                   product_names,
-                   user_rating,
-                   user_comment,
-                   sas_token,
-                   sas_expireddate
-            FROM video_phases
-            WHERE video_id = :video_id
-        """)
-        sql_phases_without_pn = text("""
-            SELECT phase_index, phase_description, time_start, time_end,
-                   COALESCE(gmv, 0) as gmv,
-                   COALESCE(order_count, 0) as order_count,
-                   COALESCE(viewer_count, 0) as viewer_count,
-                   COALESCE(like_count, 0) as like_count,
-                   COALESCE(comment_count, 0) as comment_count,
-                   COALESCE(share_count, 0) as share_count,
-                   COALESCE(new_followers, 0) as new_followers,
-                   COALESCE(product_clicks, 0) as product_clicks,
-                   COALESCE(conversion_rate, 0) as conversion_rate,
-                   COALESCE(gpm, 0) as gpm,
-                   COALESCE(importance_score, 0) as importance_score
-            FROM video_phases
-            WHERE video_id = :video_id
-        """)
-
-        _t4 = _time.monotonic()
-        has_product_names = False
-        try:
-            pres = await db.execute(sql_phases_with_pn, {"video_id": video_id})
-            phase_rows = pres.fetchall()
-            has_product_names = True
-        except Exception:
-            await db.rollback()
-            pres = await db.execute(sql_phases_without_pn, {"video_id": video_id})
-            phase_rows = pres.fetchall()
-        _t5 = _time.monotonic()
-        logger.info(f"[PERF] video_phases query: {(_t5-_t4)*1000:.0f}ms, rows={len(phase_rows)}")
-
-        phase_map = {}
-        for r in phase_rows:
-            entry = {
-                "phase_id": getattr(r, 'id', None),
-                "phase_description": r.phase_description,
-                "time_start": r.time_start,
-                "time_end": r.time_end,
-                "gmv": r.gmv,
-                "order_count": r.order_count,
-                "viewer_count": r.viewer_count,
-                "like_count": r.like_count,
-                "comment_count": r.comment_count,
-                "share_count": r.share_count,
-                "new_followers": r.new_followers,
-                "product_clicks": r.product_clicks,
-                "conversion_rate": r.conversion_rate,
-                "gpm": r.gpm,
-                "importance_score": r.importance_score,
-                "product_names": getattr(r, 'product_names', None) if has_product_names else None,
-                "user_rating": getattr(r, 'user_rating', None),
-                "user_comment": getattr(r, 'user_comment', None),
-                "sas_token": getattr(r, 'sas_token', None),
-                "sas_expireddate": getattr(r, 'sas_expireddate', None),
-            }
-            phase_map[r.phase_index] = entry
-
-        report1_items = []
-        # Lấy email từ bảng users dựa vào user_id của video
-        email = None
-        if hasattr(video, "user_id") and video.user_id:
-            sql_user = text("""
-                SELECT email FROM users WHERE id = :user_id
-            """)
-            ures = await db.execute(sql_user, {"user_id": video.user_id})
-            user_row = ures.fetchone()
-            if user_row and hasattr(user_row, "email"):
-                email = user_row.email
-        # Generate SAS URLs for clip videos - optimized batch processing
-        from app.services.video_service import VideoService
-        video_service = VideoService()
-
-        # Pre-compute all clip URLs using cached SAS from phase_map (no N+1 queries)
-        now_utc = datetime.now(timezone.utc)
-        now_naive = datetime.utcnow()
-        phases_needing_sas = []  # list of (phase_index, filename, phase_id)
-        clip_url_map = {}  # phase_index -> video_clip_url
-
-        for r in insight_rows:
-            pm = phase_map.get(r.phase_index, {})
-            time_start = pm.get("time_start")
-            time_end = pm.get("time_end")
-            if not email or time_start is None or time_end is None:
-                clip_url_map[r.phase_index] = None
-                continue
-            try:
-                ts = float(time_start)
-                te = float(time_end)
-                ts_str = f"{ts:.1f}"
-                te_str = f"{te:.1f}"
-                filename = f"{ts_str}_{te_str}.mp4"
-
-                # Check cached SAS from already-loaded phase_map
-                sas_token = pm.get("sas_token")
-                sas_expire = pm.get("sas_expireddate")
-                if sas_token and sas_expire:
-                    if sas_expire.tzinfo is not None and sas_expire.tzinfo.utcoffset(sas_expire) is not None:
-                        sas_expire_cmp = sas_expire.astimezone(timezone.utc)
-                        now_cmp = now_utc
-                    else:
-                        sas_expire_cmp = sas_expire
-                        now_cmp = now_naive
-                    if sas_expire_cmp >= now_cmp:
-                        clip_url_map[r.phase_index] = sas_token
-                        continue
-
-                # Need to generate new SAS
-                phases_needing_sas.append((r.phase_index, filename, pm.get("phase_id")))
-            except Exception:
-                clip_url_map[r.phase_index] = None
-
-        _t6 = _time.monotonic()
-        logger.info(f"[PERF] SAS cache check: {(_t6-_t5)*1000:.0f}ms, need_gen={len(phases_needing_sas)}, cached={len(clip_url_map)}")
-        # Batch generate SAS URLs for phases that need them
-        if phases_needing_sas and email:
-            async def _gen_sas(phase_idx, fname, phase_id):
-                try:
-                    result = await video_service.generate_download_url(
-                        email=email,
-                        video_id=video_id,
-                        filename=f"reportvideo/{fname}",
-                        expires_in_minutes=60 * 24 * 7,  # 7 days for better caching
-                    )
-                    url = _replace_blob_url_to_cdn(result.get("download_url"))
-                    expires_at = result.get("expires_at")
-                    if isinstance(expires_at, str):
-                        try:
-                            expires_at = datetime.fromisoformat(expires_at)
-                        except Exception:
-                            expires_at = None
-                    if expires_at is None:
-                        expires_at = datetime.utcnow() + timedelta(days=7)
-                    return phase_idx, url, phase_id, expires_at
-                except Exception:
-                    return phase_idx, None, phase_id, None
-
-            sas_results = await asyncio.gather(
-                *[_gen_sas(pi, fn, pid) for pi, fn, pid in phases_needing_sas]
-            )
-
-            # Batch update DB with new SAS tokens
-            updates_to_persist = []
-            for phase_idx, url, phase_id, expires_at in sas_results:
-                clip_url_map[phase_idx] = url
-                if url and phase_id and expires_at:
-                    updates_to_persist.append((phase_id, url, expires_at))
-
-            if updates_to_persist:
-                try:
-                    for pid, sas_url, exp_at in updates_to_persist:
-                        await db.execute(
-                            text("UPDATE video_phases SET sas_token = :sas, sas_expireddate = :exp WHERE id = :id"),
-                            {"sas": sas_url, "exp": exp_at, "id": pid}
-                        )
-                    await db.commit()
-                except Exception:
-                    pass  # Non-critical: caching failure doesn't break the response
-
-        _t7 = _time.monotonic()
-        logger.info(f"[PERF] SAS batch gen+update: {(_t7-_t6)*1000:.0f}ms")
-        # Build report1_items
-        for r in insight_rows:
-            pm = phase_map.get(r.phase_index, {})
-            time_start = pm.get("time_start")
-            time_end = pm.get("time_end")
-            video_clip_url = clip_url_map.get(r.phase_index)
-
-            # Parse product_names JSON string into list
-            product_names_raw = pm.get("product_names")
-            product_names_list = []
-            if product_names_raw:
-                try:
-                    product_names_list = json.loads(product_names_raw) if isinstance(product_names_raw, str) else product_names_raw
-                except (json.JSONDecodeError, TypeError):
-                    product_names_list = []
-
-            report1_items.append({
-                "phase_index": int(r.phase_index),
-                "phase_description": pm.get("phase_description"),
-                "time_start": time_start,
-                "time_end": time_end,
-                "insight": r.insight,
-                "video_clip_url": video_clip_url,
-                "user_rating": pm.get("user_rating"),
-                "user_comment": pm.get("user_comment"),
-                "csv_metrics": {
-                    "gmv": pm.get("gmv", 0),
-                    "order_count": pm.get("order_count", 0),
-                    "viewer_count": pm.get("viewer_count", 0),
-                    "like_count": pm.get("like_count", 0),
-                    "comment_count": pm.get("comment_count", 0),
-                    "share_count": pm.get("share_count", 0),
-                    "new_followers": pm.get("new_followers", 0),
-                    "product_clicks": pm.get("product_clicks", 0),
-                    "conversion_rate": pm.get("conversion_rate", 0),
-                    "gpm": pm.get("gpm", 0),
-                    "importance_score": pm.get("importance_score", 0),
-                    "product_names": product_names_list,
-                },
-            })
-
-        # load latest video_insights record for report3 (single item)
         sql_latest_insight = text("""
-            SELECT title, content, created_at
+            SELECT title, content
             FROM video_insights
             WHERE video_id = :video_id
             ORDER BY created_at DESC
             LIMIT 1
         """)
 
-        rres = await db.execute(sql_latest_insight, {"video_id": video_id})
-        latest = rres.fetchone()
+        # Execute both queries concurrently
+        combined_task = db.execute(sql_combined, {"video_id": video_id})
+        insight_task = db.execute(sql_latest_insight, {"video_id": video_id})
+        combined_res, insight_res = await asyncio.gather(combined_task, insight_task)
 
+        combined_rows = combined_res.fetchall()
+        latest_insight = insight_res.fetchone()
+        _t2 = _time.monotonic()
+
+        # ---- Step 3: Build SAS URLs inline (no async service call needed) ----
+        conn_str = _os.getenv("AZURE_STORAGE_CONNECTION_STRING", "")
+        account_name = _os.getenv("AZURE_STORAGE_ACCOUNT_NAME", "")
+        container_name = _os.getenv("AZURE_BLOB_CONTAINER", "videos")
+        account_key = ""
+        for part in conn_str.split(";"):
+            if part.startswith("AccountKey="):
+                account_key = part.split("=", 1)[1]
+                break
+
+        now_utc = datetime.now(timezone.utc)
+        now_naive = datetime.utcnow()
+        sas_expiry = now_utc + timedelta(days=7)
+        phases_needing_sas_update = []  # (phase_id, sas_url, expiry)
+
+        def _make_sas_url(blob_name: str) -> str:
+            """Generate SAS URL locally without any async/HTTP call."""
+            sas = _generate_blob_sas(
+                account_name=account_name,
+                container_name=container_name,
+                blob_name=blob_name,
+                account_key=account_key,
+                permission=_BlobSasPermissions(read=True),
+                expiry=sas_expiry,
+            )
+            url = f"https://{account_name}.blob.core.windows.net/{container_name}/{blob_name}?{sas}"
+            return _replace_blob_url_to_cdn(url)
+
+        report1_items = []
+        for r in combined_rows:
+            # Check cached SAS
+            video_clip_url = None
+            if email and r.time_start is not None and r.time_end is not None:
+                sas_token = r.sas_token
+                sas_expire = r.sas_expireddate
+                cache_valid = False
+                if sas_token and sas_expire:
+                    try:
+                        if sas_expire.tzinfo is not None and sas_expire.tzinfo.utcoffset(sas_expire) is not None:
+                            cache_valid = sas_expire.astimezone(timezone.utc) >= now_utc
+                        else:
+                            cache_valid = sas_expire >= now_naive
+                    except Exception:
+                        pass
+
+                if cache_valid:
+                    video_clip_url = sas_token
+                elif account_key:
+                    try:
+                        ts = float(r.time_start)
+                        te = float(r.time_end)
+                        fname = f"{ts:.1f}_{te:.1f}.mp4"
+                        blob_name = f"{email}/{video_id}/reportvideo/{fname}"
+                        video_clip_url = _make_sas_url(blob_name)
+                        if r.phase_id:
+                            phases_needing_sas_update.append((r.phase_id, video_clip_url, sas_expiry))
+                    except Exception:
+                        video_clip_url = None
+
+            # Parse product_names
+            product_names_list = []
+            pn_raw = r.product_names
+            if pn_raw:
+                try:
+                    product_names_list = json.loads(pn_raw) if isinstance(pn_raw, str) else pn_raw
+                except (json.JSONDecodeError, TypeError):
+                    product_names_list = []
+
+            # Only include phases that have insights (matching original behavior)
+            if r.insight is not None:
+                report1_items.append({
+                    "phase_index": int(r.phase_index),
+                    "phase_description": r.phase_description,
+                    "time_start": r.time_start,
+                    "time_end": r.time_end,
+                    "insight": r.insight,
+                    "video_clip_url": video_clip_url,
+                    "user_rating": r.user_rating,
+                    "user_comment": r.user_comment,
+                    "csv_metrics": {
+                        "gmv": r.gmv,
+                        "order_count": r.order_count,
+                        "viewer_count": r.viewer_count,
+                        "like_count": r.like_count,
+                        "comment_count": r.comment_count,
+                        "share_count": r.share_count,
+                        "new_followers": r.new_followers,
+                        "product_clicks": r.product_clicks,
+                        "conversion_rate": r.conversion_rate,
+                        "gpm": r.gpm,
+                        "importance_score": r.importance_score,
+                        "product_names": product_names_list,
+                    },
+                })
+
+        _t3 = _time.monotonic()
+
+        # ---- Step 4: Batch persist new SAS tokens (fire-and-forget style) ----
+        if phases_needing_sas_update:
+            try:
+                for pid, sas_url, exp_at in phases_needing_sas_update:
+                    await db.execute(
+                        text("UPDATE video_phases SET sas_token = :sas, sas_expireddate = :exp WHERE id = :id"),
+                        {"sas": sas_url, "exp": exp_at, "id": pid}
+                    )
+                await db.commit()
+            except Exception:
+                pass  # Non-critical
+
+        # ---- Step 5: Build report3 ----
         report3 = []
-        if latest:
-            # If content is a JSON string (starts with '{' or '['), parse it and
-            # extract `video_insights`. Otherwise treat `content` as legacy
-            # text and return it as a single report item.
-            parsed = latest.content
+        if latest_insight:
+            parsed = latest_insight.content
             try:
                 if isinstance(parsed, str):
                     s = parsed.lstrip()
@@ -860,65 +772,43 @@ async def get_video_detail(
 
                 if isinstance(parsed, dict) and parsed.get("video_insights") and isinstance(parsed.get("video_insights"), list):
                     for item in parsed.get("video_insights"):
-                        report3.append({
-                            "title": item.get("title"),
-                            "content": item.get("content"),
-                        })
+                        report3.append({"title": item.get("title"), "content": item.get("content")})
                 elif isinstance(parsed, list):
                     for item in parsed:
-                        report3.append({
-                            "title": item.get("title"),
-                            "content": item.get("content"),
-                        })
+                        report3.append({"title": item.get("title"), "content": item.get("content")})
                 else:
-                    # legacy text report
-                    report3.append({
-                        "title": latest.title,
-                        "content": latest.content,
-                    })
+                    report3.append({"title": latest_insight.title, "content": latest_insight.content})
             except Exception:
-                report3.append({
-                    "title": latest.title,
-                    "content": latest.content,
-                })
+                report3.append({"title": latest_insight.title, "content": latest_insight.content})
 
-        # Generate preview URL from compressed blob if available
+        # ---- Step 6: Generate preview URL (inline, no service call) ----
         preview_url = None
-        compressed_blob = getattr(video, 'compressed_blob_url', None)
-        if compressed_blob and email:
+        if compressed_blob and email and account_key:
             try:
-                # compressed_blob stores the blob path like email/video_id/video_id_preview.mp4
-                # Extract just the filename part for generate_download_url
                 preview_filename = compressed_blob.split('/')[-1] if '/' in compressed_blob else compressed_blob
-                preview_result = await video_service.generate_download_url(
-                    email=email,
-                    video_id=video_id,
-                    filename=preview_filename,
-                    expires_in_minutes=60 * 24,
-                )
-                preview_url = _replace_blob_url_to_cdn(preview_result.get("download_url"))
+                blob_name = f"{email}/{video_id}/{preview_filename}"
+                preview_url = _make_sas_url(blob_name)
             except Exception:
                 preview_url = None
 
         _t_end = _time.monotonic()
         _perf = {
-            "get_video_by_id_ms": round((_t1-_t0)*1000),
-            "phase_insights_query_ms": round((_t3-_t2)*1000),
-            "video_phases_query_ms": round((_t5-_t4)*1000),
-            "sas_cache_check_ms": round((_t6-_t5)*1000),
-            "sas_batch_gen_ms": round((_t7-_t6)*1000),
+            "video_query_ms": round((_t1-_t0)*1000),
+            "combined_query_ms": round((_t2-_t1)*1000),
+            "build_response_ms": round((_t3-_t2)*1000),
             "total_ms": round((_t_end-_t0)*1000),
-            "phases_needing_sas": len(phases_needing_sas),
-            "phases_cached": len(clip_url_map) - len(phases_needing_sas),
+            "phase_count": len(combined_rows),
+            "sas_generated": len(phases_needing_sas_update),
         }
         logger.info(f"[PERF] {_perf}")
+
         return {
-            "id": str(video.id),
-            "original_filename": video.original_filename,
-            "status": video.status,
-            "upload_type": getattr(video, 'upload_type', None),
-            "excel_product_blob_url": getattr(video, 'excel_product_blob_url', None),
-            "excel_trend_blob_url": getattr(video, 'excel_trend_blob_url', None),
+            "id": str(video_row.id),
+            "original_filename": video_row.original_filename,
+            "status": video_row.status,
+            "upload_type": video_row.upload_type,
+            "excel_product_blob_url": video_row.excel_product_blob_url,
+            "excel_trend_blob_url": video_row.excel_trend_blob_url,
             "compressed_blob_url": compressed_blob,
             "preview_url": preview_url,
             "reports_1": report1_items,
@@ -928,6 +818,7 @@ async def get_video_detail(
     except HTTPException:
         raise
     except Exception as exc:
+        logger.exception(f"Failed to fetch video detail: {exc}")
         raise HTTPException(status_code=500, detail=f"Failed to fetch video detail: {exc}")
 
 

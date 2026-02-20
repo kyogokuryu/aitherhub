@@ -60,7 +60,11 @@ cleaned_url, connect_args = prepare_database_url(DATABASE_URL)
 
 engine = create_async_engine(
     cleaned_url,
-    echo=True,
+    echo=False,
+    pool_size=10,
+    max_overflow=20,
+    pool_pre_ping=True,
+    pool_recycle=300,
     connect_args=connect_args,
 )
 
