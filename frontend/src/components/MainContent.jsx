@@ -91,6 +91,8 @@ export default function MainContent({
       upload_type: data.upload_type,
       excel_product_blob_url: data.excel_product_blob_url,
       excel_trend_blob_url: data.excel_trend_blob_url,
+      compressed_blob_url: data.compressed_blob_url,
+      preview_url: data.preview_url,
       reports_1: r1,
       reports_2: r2,
       report3: Array.isArray(data.report3) ? data.report3 : (data.report3 ? [data.report3] : []),
