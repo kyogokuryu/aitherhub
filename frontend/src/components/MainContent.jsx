@@ -862,6 +862,29 @@ export default function MainContent({
                     />
                   </div>
                 </div>
+                {/* Allow uploading another video while current one is processing */}
+                {!uploading && activeProcessingVideoId && (
+                  <div className="mt-4 flex justify-center">
+                    <button
+                      onClick={() => {
+                        setUploadedVideoId(null);
+                        setVideoData(null);
+                        setSelectedFile(null);
+                        setCleanVideoFile(null);
+                        setCleanVideoFiles([]);
+                        setProductExcelFile(null);
+                        setTrendExcelFile(null);
+                        setUploadMode(null);
+                        setProgress(0);
+                        setMessage("");
+                        setDuplicateVideo(null);
+                      }}
+                      className="px-4 py-2 text-sm text-[#7D01FF] border border-[#7D01FF] rounded-md hover:bg-gray-100 transition-colors cursor-pointer"
+                    >
+                      + 新しい動画をアップロード
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
