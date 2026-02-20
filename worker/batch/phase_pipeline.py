@@ -11,8 +11,7 @@ from decouple import config
 import asyncio
 from functools import partial
 
-# Reduced from 8 to 4 to avoid 429 rate limits on Azure OpenAI
-MAX_CONCURRENCY = 4
+MAX_CONCURRENCY = 8
 
 
 # ======================================================
@@ -33,8 +32,7 @@ GPT5_MODEL = env("GPT5_MODEL")
 
 # Max number of frames to scan forward/backward
 # when GPT fails to read viewer_count at phase boundary
-# Reduced from 20 to 5 to minimize GPT Vision API calls and avoid 429 rate limits
-MAX_FALLBACK = 5
+MAX_FALLBACK = 20
 
 
 client = AzureOpenAI(
@@ -363,32 +361,11 @@ def read_phase_end(files, frame_dir, frame_idx):
 
 
 
-def extract_phase_stats(keyframes, total_frames, frame_dir, phase_importance=None):
-    """
-    STEP 2 – Extract viewer/like metrics for each phase.
-
-    Args:
-        keyframes: phase boundary frame indices
-        total_frames: total number of frames
-        frame_dir: directory containing extracted frames
-        phase_importance: optional list[bool] indicating which phases are important.
-            If provided, only important phases will be analyzed via GPT Vision.
-            Non-important phases get None metrics (saves API calls).
-    """
+def extract_phase_stats(keyframes, total_frames, frame_dir):
     files = sorted(os.listdir(frame_dir))
     extended = [0] + keyframes + [total_frames]
 
     phase_results = {}
-
-    # Count how many phases will be analyzed
-    total_phases = len(extended) - 1
-    if phase_importance:
-        analyze_count = sum(1 for i in range(total_phases) if i < len(phase_importance) and phase_importance[i])
-        skip_count = total_phases - analyze_count
-        print(f"[STEP2] CSV filter: analyzing {analyze_count}/{total_phases} phases, skipping {skip_count}")
-    else:
-        analyze_count = total_phases
-        print(f"[STEP2] No CSV filter: analyzing all {total_phases} phases")
 
     async def runner():
         sem = asyncio.Semaphore(MAX_CONCURRENCY)
@@ -398,11 +375,6 @@ def extract_phase_stats(keyframes, total_frames, frame_dir, phase_importance=Non
             start = extended[i]
             end = extended[i + 1] - 1
             phase_idx = i + 1
-
-            # Skip non-important phases if filter is provided
-            if phase_importance and i < len(phase_importance) and not phase_importance[i]:
-                print(f"[STEP2] SKIP phase {phase_idx} (not important per CSV)")
-                continue
 
             tasks.append(
                 process_phase_role(
@@ -654,9 +626,18 @@ PHASE DESCRIPTIONを作成してください。
 - 商品名、価格、数値、時間、視聴者数は書かない
 - 評価や感想は書かない
 
+追加タスク：
+このフェーズに含まれるCTA（購買意欲を煽る発言）の強さを1〜5で評価してください。
+- 1: CTAなし（雑談、挨拶、商品説明のみ）
+- 2: 弱いCTA（「良かったら見てみてね」程度）
+- 3: 中程度のCTA（「おすすめです」「人気です」など）
+- 4: 強いCTA（「今だけ」「限定」「残りわずか」など緊急性・希少性の演出）
+- 5: 最強CTA（「今すぐカートに入れて」「リンク押して」など直接的な購買指示）
+
 出力（JSON）：
 {
-  "phase_description": "string"
+  "phase_description": "string",
+  "cta_score": 1
 }
 """.strip()
 
@@ -736,7 +717,8 @@ PHASE DESCRIPTIONを作成してください。
 #     return phase_units
 
 def build_phase_descriptions(phase_units):
-    results = {}
+    results = {}       # {phase_index: phase_description}
+    cta_results = {}    # {phase_index: cta_score}
 
     async def runner():
         sem = asyncio.Semaphore(MAX_CONCURRENCY)
@@ -748,6 +730,7 @@ def build_phase_descriptions(phase_units):
                     phase,
                     sem,
                     results,
+                    cta_results,
                 )
             )
 
@@ -766,6 +749,7 @@ def build_phase_descriptions(phase_units):
 
     for phase in phase_units:
         phase["phase_description"] = results.get(phase["phase_index"])
+        phase["cta_score"] = cta_results.get(phase["phase_index"], 1)
 
     return phase_units
 
@@ -839,6 +823,7 @@ async def process_one_phase_desc_task(
     phase,
     sem,
     results,
+    cta_results=None,
 ):
     data = await gpt_phase_description_async(
         phase.get("image_caption"),
@@ -848,12 +833,22 @@ async def process_one_phase_desc_task(
 
     if isinstance(data, dict) and "phase_description" in data:
         results[phase["phase_index"]] = data["phase_description"]
+
+        # Extract cta_score from GPT response
+        if cta_results is not None:
+            try:
+                score = int(data.get("cta_score", 1))
+                cta_results[phase["phase_index"]] = max(1, min(5, score))
+            except (ValueError, TypeError):
+                cta_results[phase["phase_index"]] = 1
     else:
         results[phase["phase_index"]] = (
-        "このフェーズでは、配信者が視聴者とやり取りしながら、"
-        "画面に表示されている内容に関連する説明や進行を行っている。"
-        "詳細な説明は処理制限により取得できなかった。"
-    )
+            "このフェーズでは、配信者が視聴者とやり取りしながら、"
+            "画面に表示されている内容に関連する説明や進行を行っている。"
+            "詳細な説明は処理制限により取得できなかった。"
+        )
+        if cta_results is not None:
+            cta_results[phase["phase_index"]] = 1
 
 
 

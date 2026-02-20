@@ -39,6 +39,7 @@ from phase_pipeline import (
     build_phase_descriptions,
 )
 from audio_pipeline import extract_audio_chunks, transcribe_audio_chunks
+from audio_features_pipeline import analyze_phase_audio_features
 from grouping_pipeline import (
     embed_phase_descriptions,
     assign_phases_to_groups,
@@ -64,6 +65,8 @@ from db_ops import (
     load_video_phases_sync,
     update_video_phase_description_sync,
     update_video_phase_csv_metrics_sync,
+    update_video_phase_cta_score_sync,
+    update_video_phase_audio_features_sync,
     update_phase_group_sync,
     get_video_structure_group_id_of_video_sync,
     bulk_upsert_group_best_phases_sync,
@@ -793,8 +796,58 @@ def main():
                         phase_index=p["phase_index"],
                         phase_description=p["phase_description"],
             )
+
+            # --- CTA Score persistence ---
+            logger.info("[DB] Persist cta_score to video_phases")
+            cta_count = 0
+            for p in phase_units:
+                cta = p.get("cta_score")
+                if cta is not None:
+                    try:
+                        update_video_phase_cta_score_sync(
+                            video_id=video_id,
+                            phase_index=p["phase_index"],
+                            cta_score=int(cta),
+                        )
+                        cta_count += 1
+                    except Exception as e:
+                        logger.warning("[DB][WARN] cta_score save failed phase %s: %s", p["phase_index"], e)
+            logger.info("[DB] Saved cta_score for %d/%d phases", cta_count, len(phase_units))
         else:
             logger.info("[SKIP] STEP 6")
+
+        # =========================
+        # STEP 6.5 – AUDIO PARALINGUISTIC FEATURES (filtered)
+        # =========================
+
+        if start_step <= 6:
+            logger.info("=== STEP 6.5 – AUDIO PARALINGUISTIC FEATURES ===")
+            try:
+                phase_units = analyze_phase_audio_features(
+                    phase_units=phase_units,
+                    video_path=video_path,
+                )
+
+                # Persist audio features to DB
+                import json as _json
+                af_count = 0
+                for p in phase_units:
+                    af = p.get("audio_features")
+                    if af is not None:
+                        try:
+                            update_video_phase_audio_features_sync(
+                                video_id=video_id,
+                                phase_index=p["phase_index"],
+                                audio_features_json=_json.dumps(af),
+                            )
+                            af_count += 1
+                        except Exception as e:
+                            logger.warning("[DB][WARN] audio_features save failed phase %s: %s", p["phase_index"], e)
+                logger.info("[DB] Saved audio_features for %d/%d phases", af_count, len(phase_units))
+            except Exception as e:
+                logger.warning("[AUDIO-FEATURES][WARN] Skipped due to error: %s", e)
+        else:
+            logger.info("[SKIP] STEP 6.5")
 
         # =========================
         # STEP 7 – GLOBAL GROUPING
@@ -1043,24 +1096,18 @@ def main():
                 
 
         # =========================
-        # CLEANUP – CLEAR uploadedvideo
+        # CLEANUP – CLEAR only THIS video's file from uploadedvideo
         # =========================
         try:
             upload_dir = "uploadedvideo"
-            if os.path.exists(upload_dir):
-                print(f"[CLEANUP] Clear all files in {upload_dir}/")
-
-                for name in os.listdir(upload_dir):
-                    path = os.path.join(upload_dir, name)
-                    try:
-                        if os.path.isfile(path) or os.path.islink(path):
-                            os.remove(path)
-                        elif os.path.isdir(path):
-                            shutil.rmtree(path)
-                    except Exception as e:
-                        print(f"[WARN] Could not remove {path}: {e}")
+            my_video_file = os.path.join(upload_dir, f"{video_id}.mp4")
+            if os.path.exists(my_video_file):
+                os.remove(my_video_file)
+                logger.info("[CLEANUP] Removed %s", my_video_file)
+            else:
+                logger.info("[CLEANUP] %s already removed (OK)", my_video_file)
         except Exception as e:
-            print(f"[WARN] Cleanup uploadedvideo failed: {e}")
+            logger.warning("[CLEANUP][WARN] Could not remove video file: %s", e)
 
 
     except Exception:

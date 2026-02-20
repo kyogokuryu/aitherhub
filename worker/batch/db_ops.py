@@ -251,68 +251,6 @@ def update_video_phase_description_sync(*args, **kwargs):
     return loop.run_until_complete(update_video_phase_description(*args, **kwargs))
 
 
-# ---------- STEP 5.5: update CSV metrics on video_phases ----------
-
-async def update_video_phase_csv_metrics(
-    video_id: str,
-    phase_index: int,
-    gmv: float = 0,
-    order_count: int = 0,
-    viewer_count: int = 0,
-    like_count: int = 0,
-    comment_count: int = 0,
-    share_count: int = 0,
-    new_followers: int = 0,
-    product_clicks: int = 0,
-    conversion_rate: float = 0,
-    gpm: float = 0,
-    importance_score: float = 0,
-    product_names: str = None,
-):
-    sql = text("""
-        UPDATE video_phases
-        SET gmv = :gmv,
-            order_count = :order_count,
-            viewer_count = :viewer_count,
-            like_count = :like_count,
-            comment_count = :comment_count,
-            share_count = :share_count,
-            new_followers = :new_followers,
-            product_clicks = :product_clicks,
-            conversion_rate = :conversion_rate,
-            gpm = :gpm,
-            importance_score = :importance_score,
-            product_names = :product_names,
-            updated_at = now()
-        WHERE video_id = :video_id
-          AND phase_index = :phase_index
-    """)
-
-    async with AsyncSessionLocal() as session:
-        await session.execute(sql, {
-            "video_id": video_id,
-            "phase_index": phase_index,
-            "gmv": gmv,
-            "order_count": order_count,
-            "viewer_count": viewer_count,
-            "like_count": like_count,
-            "comment_count": comment_count,
-            "share_count": share_count,
-            "new_followers": new_followers,
-            "product_clicks": product_clicks,
-            "conversion_rate": conversion_rate,
-            "gpm": gpm,
-            "importance_score": importance_score,
-            "product_names": product_names,
-        })
-        await session.commit()
-
-
-def update_video_phase_csv_metrics_sync(*args, **kwargs):
-    loop = get_event_loop()
-    return loop.run_until_complete(update_video_phase_csv_metrics(*args, **kwargs))
-
-
 # ---------- STEP 7: upsert phase_groups + update video_phases ----------
 async def get_all_phase_groups(user_id: int):
     """
@@ -1541,12 +1479,11 @@ def update_video_split_status_sync(video_id: str, split_status: str):
 
 async def get_video_excel_urls(video_id: str):
     """
-    Get upload_type, excel_product_blob_url, excel_trend_blob_url, time_offset_seconds
+    Get upload_type, excel_product_blob_url, excel_trend_blob_url
     for a given video.
     """
     sql = text("""
-        SELECT upload_type, excel_product_blob_url, excel_trend_blob_url,
-               COALESCE(time_offset_seconds, 0) AS time_offset_seconds
+        SELECT upload_type, excel_product_blob_url, excel_trend_blob_url
         FROM videos
         WHERE id = :video_id
     """)
@@ -1559,10 +1496,118 @@ async def get_video_excel_urls(video_id: str):
         "upload_type": row[0],
         "excel_product_blob_url": row[1],
         "excel_trend_blob_url": row[2],
-        "time_offset_seconds": float(row[3] or 0),
     }
 
 
 def get_video_excel_urls_sync(video_id: str):
     loop = get_event_loop()
     return loop.run_until_complete(get_video_excel_urls(video_id))
+
+
+# =========================
+# CTA Score (PHASE)
+# =========================
+
+async def update_video_phase_cta_score(video_id: str, phase_index: int, cta_score: int):
+    sql = text("""
+        UPDATE video_phases
+        SET cta_score = :cta_score,
+            updated_at = now()
+        WHERE video_id = :video_id
+          AND phase_index = :phase_index
+    """)
+    async with AsyncSessionLocal() as session:
+        await session.execute(sql, {
+            "video_id": video_id,
+            "phase_index": phase_index,
+            "cta_score": cta_score,
+        })
+        await session.commit()
+
+
+def update_video_phase_cta_score_sync(video_id: str, phase_index: int, cta_score: int):
+    loop = get_event_loop()
+    return loop.run_until_complete(
+        update_video_phase_cta_score(video_id, phase_index, cta_score)
+    )
+
+
+# =========================
+# Audio Features (PHASE)
+# =========================
+
+async def update_video_phase_audio_features(video_id: str, phase_index: int, audio_features_json: str):
+    """
+    Store audio paralinguistic features as JSON text.
+    audio_features_json should be a JSON string like:
+    '{"energy_mean": 0.01, "pitch_mean": 210.5, ...}'
+    """
+    sql = text("""
+        UPDATE video_phases
+        SET audio_features = :audio_features,
+            updated_at = now()
+        WHERE video_id = :video_id
+          AND phase_index = :phase_index
+    """)
+    async with AsyncSessionLocal() as session:
+        await session.execute(sql, {
+            "video_id": video_id,
+            "phase_index": phase_index,
+            "audio_features": audio_features_json,
+        })
+        await session.commit()
+
+
+def update_video_phase_audio_features_sync(video_id: str, phase_index: int, audio_features_json: str):
+    loop = get_event_loop()
+    return loop.run_until_complete(
+        update_video_phase_audio_features(video_id, phase_index, audio_features_json)
+    )
+
+
+# =========================
+# CSV Metrics (PHASE) – was missing from codebase
+# =========================
+
+async def update_video_phase_csv_metrics(
+    video_id: str,
+    phase_index: int,
+    **kwargs
+):
+    """
+    Update CSV-derived metrics for a video phase.
+    Accepts any combination of:
+      gmv, order_count, viewer_count, like_count, comment_count,
+      share_count, new_followers, product_clicks, conversion_rate,
+      gpm, importance_score
+    """
+    if not kwargs:
+        return
+
+    set_clauses = []
+    params = {"video_id": video_id, "phase_index": phase_index}
+
+    for key, value in kwargs.items():
+        set_clauses.append(f"{key} = :{key}")
+        params[key] = value
+
+    set_clauses.append("updated_at = now()")
+    set_sql = ", ".join(set_clauses)
+
+    sql = text(f"""
+        UPDATE video_phases
+        SET {set_sql}
+        WHERE video_id = :video_id
+          AND phase_index = :phase_index
+    """)
+
+    async with AsyncSessionLocal() as session:
+        await session.execute(sql, params)
+        await session.commit()
+
+
+def update_video_phase_csv_metrics_sync(video_id: str, phase_index: int, **kwargs):
+    loop = get_event_loop()
+    return loop.run_until_complete(
+        update_video_phase_csv_metrics(video_id, phase_index, **kwargs)
+    )

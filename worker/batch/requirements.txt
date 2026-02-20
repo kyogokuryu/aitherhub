@@ -12,6 +12,13 @@ ffmpeg-python==0.2.0
 # ---- LLM / AI ----
 openai>=1.60.0
 
+# ---- Local Whisper (speech-to-text) ----
+faster-whisper==1.1.1
+torch>=2.0.0
+
+# ---- Audio feature extraction ----
+librosa==0.10.2.post1
+
 # ---- Utils ----
 requests==2.31.0
 tenacity==8.2.3

@@ -1,8 +1,19 @@
-FROM python:3.11-slim
+# ============================================================
+# AitherHub Batch Worker – GPU-enabled (NVIDIA T4)
+# ============================================================
+# Base image: NVIDIA CUDA 12.4 + cuDNN 9 (Ubuntu 22.04)
+# Required for: faster-whisper (CTranslate2), YOLOv8, torch
+# ============================================================
+FROM nvidia/cuda:12.4.1-cudnn-runtime-ubuntu22.04
 
-WORKDIR /app
+# Prevent interactive prompts during apt-get
+ENV DEBIAN_FRONTEND=noninteractive
 
+# Install system dependencies
 RUN apt-get update && apt-get install -y \
+    python3.11 \
+    python3.11-venv \
+    python3-pip \
     ffmpeg \
     libsm6 \
     libxext6 \
@@ -11,15 +22,28 @@ RUN apt-get update && apt-get install -y \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy từ worker folder
+# Make python3.11 the default python
+RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.11 1 \
+    && update-alternatives --install /usr/bin/python python /usr/bin/python3.11 1
+
+WORKDIR /app
+
+# Copy and install Python dependencies
 COPY worker/batch/requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy application code
 COPY worker/batch/ /app/batch/
 COPY worker/shared/ /app/shared/
 
 ENV PYTHONPATH=/app
 
-WORKDIR /app/batch
+# ---- Whisper engine config (override via env vars) ----
+# Set to "local" to use faster-whisper, "azure" to use Azure API
+ENV WHISPER_ENGINE=local
+ENV WHISPER_MODEL_SIZE=large-v3
+ENV WHISPER_DEVICE=auto
+ENV WHISPER_COMPUTE_TYPE=auto
 
+WORKDIR /app/batch
 CMD ["python", "process_video.py"]
