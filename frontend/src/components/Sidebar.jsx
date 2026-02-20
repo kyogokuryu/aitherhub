@@ -11,7 +11,7 @@ import ForgotPasswordModal from "./modals/ForgotPasswordModal";
 import AuthService from "../base/services/userService";
 import VideoService from "../base/services/videoService";
 
-import { ChevronDown, LogOut, Settings, User, X, MoreHorizontal, Pencil, Trash2, Scissors } from "lucide-react";
+import { ChevronDown, LogOut, Settings, User, X, MoreHorizontal, Pencil, Trash2, Scissors, MessageSquareText } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -386,6 +386,12 @@ export default function Sidebar({ isOpen, onClose, user, onVideoSelect, onNewAna
                                   <span className="inline-flex items-center gap-0.5 text-[10px] text-purple-600">
                                     <Scissors className="w-3 h-3" />
                                     {video.completed_clip_count}
+                                  </span>
+                                )}
+                                {video.memo_count > 0 && (
+                                  <span className="inline-flex items-center gap-0.5 text-[10px] text-green-600">
+                                    <MessageSquareText className="w-3 h-3" />
+                                    {video.memo_count}
                                   </span>
                                 )}
                               </div>
