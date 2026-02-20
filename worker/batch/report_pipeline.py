@@ -148,6 +148,11 @@ def build_report_1_timeline(phase_units):
             }
         }
 
+        # Add CTA score if available
+        cta = p.get("cta_score")
+        if cta is not None:
+            entry["cta_score"] = cta
+
         # Add sales data if available
         sales = p.get("sales_data")
         if sales:
@@ -287,6 +292,16 @@ def build_report_2_phase_insights_raw(phase_units, best_data, excel_data=None):
             "findings": findings,
         }
 
+        # Add CTA score if available
+        cta = p.get("cta_score")
+        if cta is not None:
+            item["cta_score"] = cta
+
+        # Add audio features if available
+        af = p.get("audio_features")
+        if af:
+            item["audio_features"] = af
+
         # Add sales data if available
         sales = p.get("sales_data")
         if sales:
@@ -357,6 +372,8 @@ PROMPT_REPORT_2 = """
 - 視聴者数・いいね数の推移
 - 売上データ（ある場合）
 - 過去のベストパフォーマンスとの比較
+- CTAスコア（1〜5、購買を促す発言の強度。ある場合）
+- 音声特徴量（声の熱量・抑揚・話速・沈黙率。ある場合）
 
 あなたの役割：
 - このフェーズで「どう売っているか」を分析する
@@ -369,6 +386,8 @@ PROMPT_REPORT_2 = """
 - 購買導線（カートへの誘導タイミング、価格提示のタイミング）
 - 視聴者エンゲージメント（コメント誘導、質問への対応）
 - 売上データがある場合：なぜこの時間帯に売れた/売れなかったかの分析
+- CTAスコアがある場合：購買を促す発言の強さと頻度の評価。スコアが低いフェーズでは「もっと強く購買を促すべき」等の具体的アドバイス
+- 音声特徴量がある場合：声の熱量（energy_mean）や抑揚（pitch_std）が低い場合は「もっと感情を込めて話すべき」、話速（speech_rate）が速すぎる場合は「ゆっくり丁寧に説明すべき」等のアドバイス
 
 出力ルール：
 - 最大2つの具体的なセールス改善アドバイス
@@ -380,6 +399,7 @@ PROMPT_REPORT_2 = """
 制約：
 - データを捏造しない
 - 抽象的な表現を避ける（「もっと工夫する」ではなく「価格を先に見せてから限定数を伝える」のように書く）
+- 音声特徴量の数値を直接引用しない（「energy_meanが0.03」ではなく「声の熱量が低い」のように自然な表現で書く）
 
 入力：
 {data}

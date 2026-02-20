@@ -763,6 +763,23 @@ export default function VideoDetail({ videoData }) {
                                         メモ
                                       </span>
                                     )}
+                                    {item.cta_score != null && item.cta_score >= 3 && (
+                                      <span
+                                        className={`inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full text-[9px] font-bold border ${
+                                          item.cta_score >= 5
+                                            ? 'bg-red-100 text-red-700 border-red-300'
+                                            : item.cta_score >= 4
+                                            ? 'bg-orange-100 text-orange-700 border-orange-300'
+                                            : 'bg-yellow-100 text-yellow-700 border-yellow-300'
+                                        }`}
+                                        title={`CTA\u5F37\u5EA6: ${item.cta_score}/5`}
+                                      >
+                                        <svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="currentColor" stroke="none">
+                                          <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/>
+                                        </svg>
+                                        CTA {item.cta_score}
+                                      </span>
+                                    )}
                                     <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="lucide lucide-flame w-4 h-4 text-orange-500"><path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 2.5z"></path></svg>
                                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
                                       stroke="currentColor" strokeWidth="1.5"
@@ -922,6 +939,85 @@ export default function VideoDetail({ videoData }) {
                                             keyPrefix={`timeline-insight-${itemKey}`}
                                           />
                                         </div>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {/* Audio Features Section */}
+                                {item.audio_features && (
+                                  <div className="flex items-start gap-4">
+                                    <div className="text-purple-500">
+                                      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-4 h-4 flex-shrink-0">
+                                        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/>
+                                        <path d="M19 10v2a7 7 0 0 1-14 0v-2"/>
+                                        <line x1="12" x2="12" y1="19" y2="22"/>
+                                      </svg>
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="text-purple-600 font-medium text-xs mb-2">\u97f3\u58f0\u5206\u6790</div>
+                                      <div className="flex flex-wrap gap-2">
+                                        {item.audio_features.energy_mean != null && (
+                                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-purple-50 border border-purple-200">
+                                            <span className="text-[10px] text-purple-500">\u71b1\u91cf</span>
+                                            <div className="w-16 h-1.5 bg-purple-100 rounded-full overflow-hidden">
+                                              <div
+                                                className="h-full bg-purple-500 rounded-full"
+                                                style={{ width: `${Math.min(100, (item.audio_features.energy_mean / 0.05) * 100)}%` }}
+                                              />
+                                            </div>
+                                            <span className="text-[10px] font-medium text-purple-700">
+                                              {item.audio_features.energy_mean >= 0.03 ? '\u9ad8' : item.audio_features.energy_mean >= 0.015 ? '\u4e2d' : '\u4f4e'}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {item.audio_features.pitch_std != null && (
+                                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-indigo-50 border border-indigo-200">
+                                            <span className="text-[10px] text-indigo-500">\u6291\u63da</span>
+                                            <div className="w-16 h-1.5 bg-indigo-100 rounded-full overflow-hidden">
+                                              <div
+                                                className="h-full bg-indigo-500 rounded-full"
+                                                style={{ width: `${Math.min(100, (item.audio_features.pitch_std / 80) * 100)}%` }}
+                                              />
+                                            </div>
+                                            <span className="text-[10px] font-medium text-indigo-700">
+                                              {item.audio_features.pitch_std >= 50 ? '\u8c4a\u304b' : item.audio_features.pitch_std >= 25 ? '\u666e\u901a' : '\u5358\u8abf'}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {item.audio_features.speech_rate != null && (
+                                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-teal-50 border border-teal-200">
+                                            <span className="text-[10px] text-teal-500">\u8a71\u901f</span>
+                                            <span className="text-[10px] font-medium text-teal-700">
+                                              {item.audio_features.speech_rate.toFixed(1)}\u5b57/\u79d2
+                                            </span>
+                                            <span className={`text-[9px] px-1 py-0.5 rounded ${
+                                              item.audio_features.speech_rate > 7 ? 'bg-red-100 text-red-600' :
+                                              item.audio_features.speech_rate < 3 ? 'bg-blue-100 text-blue-600' :
+                                              'bg-green-100 text-green-600'
+                                            }`}>
+                                              {item.audio_features.speech_rate > 7 ? '\u901f\u3044' :
+                                               item.audio_features.speech_rate < 3 ? '\u9045\u3044' : '\u9069\u5207'}
+                                            </span>
+                                          </div>
+                                        )}
+                                        {item.audio_features.silence_ratio != null && (
+                                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-50 border border-gray-200">
+                                            <span className="text-[10px] text-gray-500">\u6c88\u9ed9\u7387</span>
+                                            <span className="text-[10px] font-medium text-gray-700">
+                                              {(item.audio_features.silence_ratio * 100).toFixed(0)}%
+                                            </span>
+                                          </div>
+                                        )}
+                                        {item.audio_features.energy_trend && (
+                                          <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-50 border border-amber-200">
+                                            <span className="text-[10px] text-amber-500">\u30c8\u30ec\u30f3\u30c9</span>
+                                            <span className="text-[10px] font-medium text-amber-700">
+                                              {item.audio_features.energy_trend === 'rising' ? '\u2197 \u4e0a\u6607' :
+                                               item.audio_features.energy_trend === 'falling' ? '\u2198 \u4e0b\u964d' : '\u2192 \u5b89\u5b9a'}
+                                            </span>
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
                                   </div>

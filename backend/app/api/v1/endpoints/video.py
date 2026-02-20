@@ -683,6 +683,8 @@ async def get_video_detail(
                 vp.user_comment,
                 vp.sas_token,
                 vp.sas_expireddate,
+                vp.cta_score,
+                vp.audio_features,
                 pi.insight
             FROM video_phases vp
             LEFT JOIN phase_insights pi ON pi.video_id = vp.video_id AND pi.phase_index = vp.phase_index
@@ -699,9 +701,46 @@ async def get_video_detail(
         """)
 
         # Execute both queries concurrently
-        combined_task = db.execute(sql_combined, {"video_id": video_id})
-        insight_task = db.execute(sql_latest_insight, {"video_id": video_id})
-        combined_res, insight_res = await asyncio.gather(combined_task, insight_task)
+        # Fallback: if cta_score/audio_features columns don't exist yet, retry without them
+        has_cta_columns = True
+        try:
+            combined_task = db.execute(sql_combined, {"video_id": video_id})
+            insight_task = db.execute(sql_latest_insight, {"video_id": video_id})
+            combined_res, insight_res = await asyncio.gather(combined_task, insight_task)
+        except Exception:
+            has_cta_columns = False
+            await db.rollback()
+            sql_combined_fallback = text("""
+                SELECT
+                    vp.id as phase_id, vp.phase_index, vp.phase_description,
+                    vp.time_start, vp.time_end,
+                    COALESCE(vp.gmv, 0) as gmv,
+                    COALESCE(vp.order_count, 0) as order_count,
+                    COALESCE(vp.viewer_count, 0) as viewer_count,
+                    COALESCE(vp.like_count, 0) as like_count,
+                    COALESCE(vp.comment_count, 0) as comment_count,
+                    COALESCE(vp.share_count, 0) as share_count,
+                    COALESCE(vp.new_followers, 0) as new_followers,
+                    COALESCE(vp.product_clicks, 0) as product_clicks,
+                    COALESCE(vp.conversion_rate, 0) as conversion_rate,
+                    COALESCE(vp.gpm, 0) as gpm,
+                    COALESCE(vp.importance_score, 0) as importance_score,
+                    vp.product_names,
+                    vp.user_rating,
+                    vp.user_comment,
+                    vp.sas_token,
+                    vp.sas_expireddate,
+                    NULL as cta_score,
+                    NULL as audio_features,
+                    pi.insight
+                FROM video_phases vp
+                LEFT JOIN phase_insights pi ON pi.video_id = vp.video_id AND pi.phase_index = vp.phase_index
+                WHERE vp.video_id = :video_id
+                ORDER BY vp.phase_index ASC
+            """)
+            combined_task = db.execute(sql_combined_fallback, {"video_id": video_id})
+            insight_task = db.execute(sql_latest_insight, {"video_id": video_id})
+            combined_res, insight_res = await asyncio.gather(combined_task, insight_task)
 
         combined_rows = combined_res.fetchall()
         latest_insight = insight_res.fetchone()
@@ -777,6 +816,14 @@ async def get_video_detail(
 
             # Only include phases that have insights (matching original behavior)
             if r.insight is not None:
+                # Parse audio_features JSON text
+                audio_features_parsed = None
+                try:
+                    if r.audio_features:
+                        audio_features_parsed = json.loads(r.audio_features) if isinstance(r.audio_features, str) else r.audio_features
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
                 report1_items.append({
                     "phase_index": int(r.phase_index),
                     "phase_description": r.phase_description,
@@ -786,6 +833,8 @@ async def get_video_detail(
                     "video_clip_url": video_clip_url,
                     "user_rating": r.user_rating,
                     "user_comment": r.user_comment,
+                    "cta_score": getattr(r, 'cta_score', None),
+                    "audio_features": audio_features_parsed,
                     "csv_metrics": {
                         "gmv": r.gmv,
                         "order_count": r.order_count,
