@@ -994,7 +994,8 @@ async def request_clip_generation(
     {
         "phase_index": 0,
         "time_start": 0.0,
-        "time_end": 51.0
+        "time_end": 51.0,
+        "speed_factor": 1.2  // optional, default 1.0 (1.0-1.5x)
     }
     """
     try:
@@ -1002,9 +1003,13 @@ async def request_clip_generation(
         phase_index = request_body.get("phase_index")
         time_start = request_body.get("time_start")
         time_end = request_body.get("time_end")
+        speed_factor = float(request_body.get("speed_factor", 1.0))
 
         if phase_index is None or time_start is None or time_end is None:
             raise HTTPException(status_code=400, detail="phase_index, time_start, time_end are required")
+
+        # Clamp speed_factor to safe range
+        speed_factor = max(0.5, min(2.0, speed_factor))
 
         time_start = float(time_start)
         time_end = float(time_end)
@@ -1094,6 +1099,8 @@ async def request_clip_generation(
             "blob_url": download_url,
             "time_start": time_start,
             "time_end": time_end,
+            "phase_index": phase_index,
+            "speed_factor": speed_factor,
         })
 
         logger.info(f"Clip generation requested: clip_id={clip_id}, video_id={video_id}, phase={phase_index}")

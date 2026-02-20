@@ -54,7 +54,10 @@ def poll_and_process():
                     print("[worker] Invalid clip payload, skipping")
                     return
 
-                print(f"[worker] Starting clip generation for clip_id={clip_id}")
+                phase_index = payload.get("phase_index", -1)
+                speed_factor = payload.get("speed_factor", 1.0)
+
+                print(f"[worker] Starting clip generation for clip_id={clip_id} (speed={speed_factor}x)")
                 cmd = [
                     sys.executable,
                     os.path.join(BATCH_DIR, "generate_clip.py"),
@@ -63,6 +66,8 @@ def poll_and_process():
                     "--blob-url", blob_url,
                     "--time-start", str(time_start),
                     "--time-end", str(time_end),
+                    "--phase-index", str(phase_index),
+                    "--speed-factor", str(speed_factor),
                 ]
 
                 result = subprocess.run(

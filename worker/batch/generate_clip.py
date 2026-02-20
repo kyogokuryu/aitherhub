@@ -65,6 +65,14 @@ WHISPER_ENDPOINT = os.getenv("WHISPER_ENDPOINT")
 AZURE_KEY = os.getenv("AZURE_OPENAI_KEY")
 FFMPEG_BIN = os.getenv("FFMPEG_PATH", "ffmpeg")
 
+# OpenAI client for GPT-4o subtitle post-processing
+try:
+    from openai import OpenAI
+    _openai_client = OpenAI()
+except Exception as e:
+    logger.warning(f"OpenAI client init failed: {e}")
+    _openai_client = None
+
 # Font configuration – Noto Sans CJK JP (installed via fonts-noto-cjk package)
 JP_FONT_DIR = "/usr/share/fonts/opentype/noto"
 JP_FONT_FILE = os.path.join(JP_FONT_DIR, "NotoSansCJK-Black.ttc")
@@ -89,6 +97,7 @@ SUBTITLE_STYLES = [
         "name": "bold_white",
         "fontsize": 72,
         "fontcolor": "white",
+        "highlight_color": "#FFD700",  # Gold highlight for karaoke
         "borderw": 6,
         "bordercolor": "black",
         "shadowx": 2,
@@ -98,7 +107,8 @@ SUBTITLE_STYLES = [
     {
         "name": "yellow_pop",
         "fontsize": 74,
-        "fontcolor": "yellow",
+        "fontcolor": "#FFFFFF",
+        "highlight_color": "#FFFF00",  # Yellow highlight
         "borderw": 6,
         "bordercolor": "black",
         "shadowx": 3,
@@ -108,7 +118,8 @@ SUBTITLE_STYLES = [
     {
         "name": "cyan_glow",
         "fontsize": 70,
-        "fontcolor": "#00FFFF",
+        "fontcolor": "white",
+        "highlight_color": "#00FFFF",  # Cyan highlight
         "borderw": 6,
         "bordercolor": "#003333",
         "shadowx": 2,
@@ -118,7 +129,8 @@ SUBTITLE_STYLES = [
     {
         "name": "pink_bold",
         "fontsize": 72,
-        "fontcolor": "#FF69B4",
+        "fontcolor": "white",
+        "highlight_color": "#FF69B4",  # Pink highlight
         "borderw": 6,
         "bordercolor": "black",
         "shadowx": 2,
@@ -129,8 +141,9 @@ SUBTITLE_STYLES = [
         "name": "white_pink_outline",
         "fontsize": 72,
         "fontcolor": "white",
+        "highlight_color": "#FF6B9D",  # Pink highlight
         "borderw": 6,
-        "bordercolor": "#FF6B9D",
+        "bordercolor": "black",
         "shadowx": 0,
         "shadowy": 0,
         "shadowcolor": "black@0.0",
@@ -283,13 +296,26 @@ def extract_audio(video_path: str, audio_path: str) -> bool:
 
 
 def transcribe_audio(audio_path: str) -> list:
-    """Transcribe audio using Azure Whisper API. Returns list of segments with timestamps."""
+    """Transcribe audio using Azure Whisper API.
+    
+    Returns list of segments with word-level timestamps for karaoke effect.
+    Each segment has: start, end, text, words (list of {word, start, end})
+    """
     if not WHISPER_ENDPOINT or not AZURE_KEY:
         logger.warning("Whisper endpoint not configured, skipping transcription")
         return []
 
     with open(audio_path, "rb") as f:
         audio_data = f.read()
+
+    # Japanese prompt to improve Whisper recognition accuracy
+    # Including common terms helps Whisper recognize domain-specific vocabulary
+    whisper_prompt = (
+        "ライブ配信、ライブコマース、商品紹介、視聴者、コメント、"
+        "購入、カート、セット、限定、在庫、価格、お得、割引、"
+        "ありがとうございます、よろしくお願いします、"
+        "こんにちは、こんばんは、お疲れ様です"
+    )
 
     for attempt in range(3):
         try:
@@ -303,6 +329,7 @@ def transcribe_audio(audio_path: str) -> list:
                     "temperature": (None, "0"),
                     "task": (None, "transcribe"),
                     "language": (None, "ja"),
+                    "prompt": (None, whisper_prompt),
                 },
                 timeout=120,
             )
@@ -311,11 +338,12 @@ def transcribe_audio(audio_path: str) -> list:
                 data = response.json()
                 segments = []
 
-                # Use word-level timestamps for TikTok-style subtitles
+                # Use word-level timestamps for karaoke-style subtitles
                 words = data.get("words", [])
                 if words:
-                    # Group words into subtitle lines (max ~8 chars per line for Japanese)
-                    current_line = []
+                    # Group words into subtitle lines (max ~10 chars per line)
+                    # Keep word-level timestamps for karaoke highlight effect
+                    current_words = []
                     current_start = None
                     char_count = 0
 
@@ -329,40 +357,50 @@ def transcribe_audio(audio_path: str) -> list:
                             logger.debug(f"Skipping filler word: {w_text}")
                             continue
 
-                        if current_start is None:
-                            current_start = word.get("start", 0)
+                        w_start = word.get("start", 0)
+                        w_end = word.get("end", 0)
 
-                        current_line.append(w_text)
+                        if current_start is None:
+                            current_start = w_start
+
+                        current_words.append({
+                            "word": w_text,
+                            "start": w_start,
+                            "end": w_end,
+                        })
                         char_count += len(w_text)
 
-                        # Break line at ~8 characters for readability (larger font)
-                        if char_count >= 8:
+                        # Break line at ~10 characters for readability
+                        if char_count >= 10:
                             segments.append({
                                 "start": current_start,
-                                "end": word.get("end", 0),
-                                "text": "".join(current_line),
+                                "end": w_end,
+                                "text": "".join(w["word"] for w in current_words),
+                                "words": current_words,
                             })
-                            current_line = []
+                            current_words = []
                             current_start = None
                             char_count = 0
 
                     # Remaining words
-                    if current_line:
+                    if current_words:
                         segments.append({
                             "start": current_start,
-                            "end": words[-1].get("end", 0),
-                            "text": "".join(current_line),
+                            "end": current_words[-1]["end"],
+                            "text": "".join(w["word"] for w in current_words),
+                            "words": current_words,
                         })
                 else:
-                    # Fallback to segment-level timestamps
+                    # Fallback to segment-level timestamps (no word-level data)
                     for seg in data.get("segments", []):
                         segments.append({
                             "start": seg.get("start", 0),
                             "end": seg.get("end", 0),
                             "text": seg.get("text", "").strip(),
+                            "words": [],
                         })
 
-                logger.info(f"Transcribed {len(segments)} subtitle segments")
+                logger.info(f"Transcribed {len(segments)} subtitle segments ({len(words)} words total)")
                 return segments
 
             elif response.status_code == 429:
@@ -377,6 +415,167 @@ def transcribe_audio(audio_path: str) -> list:
             time.sleep(3)
 
     return []
+
+
+# =========================
+# GPT-4o subtitle post-processing
+# =========================
+
+def refine_subtitles_with_gpt(segments: list, phase_context: str = "") -> list:
+    """
+    Use GPT-4o to refine Whisper transcription for Japanese subtitles.
+    
+    Improvements:
+    - Fix misrecognized Japanese words using context
+    - Split text into natural Japanese phrases (bunsetsu)
+    - Remove filler words contextually
+    - Add appropriate punctuation
+    - Reconstruct word-level timestamps for karaoke effect
+    
+    Returns refined segments with word-level timestamps preserved.
+    """
+    if not _openai_client or not segments:
+        logger.info("GPT-4o refinement skipped (no client or no segments)")
+        return segments
+
+    # Combine all segment texts with timestamps for context
+    raw_lines = []
+    for i, seg in enumerate(segments):
+        raw_lines.append(f"[{seg['start']:.2f}-{seg['end']:.2f}] {seg['text']}")
+    raw_text = "\n".join(raw_lines)
+
+    # Build prompt
+    context_section = ""
+    if phase_context:
+        context_section = f"""\n## このフェーズの内容（参考情報 - 商品名や固有名詞の修正に活用）
+{phase_context}\n"""
+
+    prompt = f"""あなたは日本語のライブ配信動画（ライブコマース）の字幕を修正する専門家です。
+Whisperで自動生成された字幕テキストを修正してください。
+{context_section}
+## 修正ルール（優先度順）
+1. **誤認識の修正**: 日本語として不自然な単語や文を正しく修正する。特に以下に注意：
+   - 同音異義語の誤り（例: 「使用感」→「使用感」、「乾きやすさ」→「乾きやすさ」）
+   - 商品名・ブランド名の誤認識（コンテキストから推測）
+   - 数字・金額の誤り（例: 「センエン」→「1000円」）
+   - 敬語・丁寧語の崩れ修正
+2. **フィラーワード除去**: 「えー」「あのー」「うーん」「なんか」「まあ」等を除去
+3. **文節分割**: 各行を自然な日本語の文節（7〜12文字）で分割。意味の区切りを優先
+4. **句読点**: 自然な位置に「、」を追加（「。」は字幕なので最小限）
+
+## 入力（Whisper生テキスト + タイムスタンプ）
+{raw_text}
+
+## 出力形式
+以下のJSON配列形式で出力。各要素は {{"start": float, "end": float, "text": "修正後テキスト"}} です。
+- 元のタイムスタンプ範囲を維持しつつ、テキストを自然な文節で再分割
+- 1つの元セグメントを複数に分割する場合、タイムスタンプを文字数比率で分配
+- フィラーワードのみのセグメントは除去
+
+JSON配列のみ出力（説明不要）:"""
+
+    try:
+        response = _openai_client.responses.create(
+            model="gpt-4o",
+            input=[
+                {"role": "system", "content": "あなたは日本語ライブコマース字幕の修正専門家です。JSON配列のみを出力してください。"},
+                {"role": "user", "content": prompt},
+            ],
+            max_output_tokens=4096,
+        )
+
+        result_text = response.output_text.strip()
+        
+        # Extract JSON from response (handle markdown code blocks)
+        if result_text.startswith("```"):
+            lines = result_text.split("\n")
+            json_lines = []
+            in_block = False
+            for line in lines:
+                if line.startswith("```"):
+                    in_block = not in_block
+                    continue
+                if in_block:
+                    json_lines.append(line)
+            result_text = "\n".join(json_lines)
+
+        refined = json.loads(result_text)
+
+        if not isinstance(refined, list) or len(refined) == 0:
+            logger.warning("GPT-4o returned invalid format, using original segments")
+            return segments
+
+        # Validate, clean, and reconstruct word-level timestamps
+        valid_segments = []
+        for seg in refined:
+            if isinstance(seg, dict) and "start" in seg and "end" in seg and "text" in seg:
+                text_val = seg["text"].strip()
+                if text_val:
+                    s_start = float(seg["start"])
+                    s_end = float(seg["end"])
+                    # Reconstruct word-level timestamps by distributing time evenly per character
+                    chars = list(text_val)
+                    total_chars = len(chars)
+                    duration = s_end - s_start
+                    words = []
+                    for ci, ch in enumerate(chars):
+                        ch_start = s_start + (duration * ci / total_chars)
+                        ch_end = s_start + (duration * (ci + 1) / total_chars)
+                        words.append({"word": ch, "start": round(ch_start, 3), "end": round(ch_end, 3)})
+                    valid_segments.append({
+                        "start": s_start,
+                        "end": s_end,
+                        "text": text_val,
+                        "words": words,
+                    })
+
+        if not valid_segments:
+            logger.warning("GPT-4o refinement produced no valid segments, using original")
+            return segments
+
+        logger.info(f"GPT-4o refined {len(segments)} segments → {len(valid_segments)} segments")
+        return valid_segments
+
+    except json.JSONDecodeError as e:
+        logger.warning(f"GPT-4o response JSON parse failed: {e}")
+        return segments
+    except Exception as e:
+        logger.error(f"GPT-4o subtitle refinement failed: {e}")
+        return segments
+
+
+def get_phase_context(video_id: str, phase_index: int) -> str:
+    """
+    Fetch phase description and insight from DB to provide context for subtitle refinement.
+    """
+    loop = get_event_loop()
+
+    async def _fetch():
+        async with get_session() as session:
+            sql = text("""
+                SELECT vp.phase_description, pi.insight
+                FROM video_phases vp
+                LEFT JOIN phase_insights pi
+                    ON pi.video_id = vp.video_id AND pi.phase_index = vp.phase_index
+                WHERE vp.video_id = :video_id AND vp.phase_index = :phase_index
+                LIMIT 1
+            """)
+            result = await session.execute(sql, {"video_id": video_id, "phase_index": phase_index})
+            row = result.fetchone()
+            if row:
+                parts = []
+                if row.phase_description:
+                    parts.append(f"概要: {row.phase_description}")
+                if row.insight:
+                    parts.append(f"分析: {row.insight}")
+                return "\n".join(parts)
+            return ""
+
+    try:
+        return loop.run_until_complete(_fetch())
+    except Exception as e:
+        logger.warning(f"Failed to fetch phase context: {e}")
+        return ""
 
 
 # =========================
@@ -572,16 +771,20 @@ def get_video_dimensions(video_path: str) -> tuple:
 
 
 def build_ass_subtitle(segments: list, style: dict, video_width: int = 1080, video_height: int = 1920) -> str:
-    """Build ASS subtitle file content with TikTok-style formatting."""
+    """Build ASS subtitle file with TikTok-style karaoke highlight effect.
+    
+    Uses word-level timestamps to create a karaoke effect where each character
+    is highlighted as it is spoken, similar to popular TikTok/Reels subtitles.
+    """
     fontsize = style["fontsize"]
     fontcolor_ass = _hex_to_ass_color(style["fontcolor"])
+    highlight_color_ass = _hex_to_ass_color(style.get("highlight_color", "#FFD700"))
     bordercolor_ass = _hex_to_ass_color(style.get("bordercolor", "black"))
     outline = style.get("borderw", 4)
-    shadow = style.get("shadowx", 2)
 
-    # ASS header
+    # ASS header with two styles: Default (unhighlighted) and Highlight (karaoke active)
     ass_content = f"""[Script Info]
-Title: TikTok Clip Subtitles
+Title: TikTok Clip Subtitles - Karaoke
 ScriptType: v4.00+
 PlayResX: {video_width}
 PlayResY: {video_height}
@@ -589,7 +792,7 @@ WrapStyle: 0
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Default,{JP_FONT_NAME},{fontsize},{fontcolor_ass},&H000000FF,{bordercolor_ass},&H00000000,-1,0,0,0,100,100,2,0,1,{outline},0,2,40,40,320,1
+Style: Default,{JP_FONT_NAME},{fontsize},{fontcolor_ass},{highlight_color_ass},{bordercolor_ass},&H00000000,-1,0,0,0,100,100,2,0,1,{outline},0,2,40,40,320,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -598,8 +801,21 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     for seg in segments:
         start_time = _seconds_to_ass_time(seg["start"])
         end_time = _seconds_to_ass_time(seg["end"])
-        text = seg["text"].replace("\n", "\\N")
-        ass_content += f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}\n"
+        words = seg.get("words", [])
+
+        if words and len(words) > 1:
+            # Build karaoke effect using \kf (smooth fill) tags
+            # \kf<duration_in_centiseconds> highlights each character progressively
+            karaoke_text = ""
+            for w in words:
+                w_duration_cs = max(1, int((w["end"] - w["start"]) * 100))  # centiseconds
+                char = w["word"].replace("\\", "\\\\").replace("{", "\\{").replace("}", "\\}")
+                karaoke_text += f"{{\\kf{w_duration_cs}}}{char}"
+            ass_content += f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{karaoke_text}\n"
+        else:
+            # Fallback: no word-level data, show plain text
+            text = seg["text"].replace("\n", "\\N")
+            ass_content += f"Dialogue: 0,{start_time},{end_time},Default,,0,0,0,,{text}\n"
 
     return ass_content
 
@@ -641,10 +857,16 @@ def create_vertical_clip(
     output_path: str,
     segments: list,
     style: dict,
+    speed_factor: float = 1.0,
 ) -> bool:
-    """Create 9:16 vertical clip with burned-in subtitles."""
+    """Create 9:16 vertical clip with burned-in karaoke subtitles and optional speed adjustment.
+    
+    Args:
+        speed_factor: Playback speed multiplier (1.0 = normal, 1.2 = 20% faster, etc.)
+                      Subtitles are pre-adjusted for the speed change.
+    """
     width, height = get_video_dimensions(input_path)
-    logger.info(f"Source video: {width}x{height}")
+    logger.info(f"Source video: {width}x{height}, speed_factor={speed_factor}")
 
     # Target: 1080x1920 (9:16)
     target_w, target_h = 1080, 1920
@@ -654,17 +876,34 @@ def create_vertical_clip(
     target_ratio = target_w / target_h  # 0.5625
 
     if source_ratio > target_ratio:
-        # Source is wider - crop width, keep height
         crop_h = height
         crop_w = int(height * target_ratio)
         crop_x = (width - crop_w) // 2
         crop_y = 0
     else:
-        # Source is taller - crop height, keep width
         crop_w = width
         crop_h = int(width / target_ratio)
         crop_x = 0
         crop_y = (height - crop_h) // 2
+
+    # Adjust subtitle timestamps for speed change
+    if speed_factor != 1.0 and speed_factor > 0:
+        adjusted_segments = []
+        for seg in segments:
+            adj_seg = {
+                "start": seg["start"] / speed_factor,
+                "end": seg["end"] / speed_factor,
+                "text": seg["text"],
+            }
+            # Adjust word-level timestamps too
+            if "words" in seg:
+                adj_seg["words"] = [
+                    {"word": w["word"], "start": w["start"] / speed_factor, "end": w["end"] / speed_factor}
+                    for w in seg["words"]
+                ]
+            adjusted_segments.append(adj_seg)
+        segments = adjusted_segments
+        logger.info(f"Adjusted {len(segments)} subtitle segments for {speed_factor}x speed")
 
     # Build ASS subtitle file
     ass_path = input_path + ".ass"
@@ -674,19 +913,44 @@ def create_vertical_clip(
 
     logger.info(f"Created ASS subtitle file: {ass_path}")
 
-    # FFmpeg command: crop → scale → burn subtitles
-    # Use fontsdir to point FFmpeg to the Noto Sans CJK JP font directory
+    # FFmpeg command: crop → scale → burn subtitles (+ optional speed adjustment)
     ass_path_escaped = ass_path.replace("'", "'\\''")
-    filter_complex = (
-        f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y},"
-        f"scale={target_w}:{target_h}:flags=lanczos,"
-        f"ass='{ass_path_escaped}':fontsdir='{JP_FONT_DIR}'"
-    )
-
+    
+    # Video filter: crop → scale → subtitles
+    vf_parts = [
+        f"crop={crop_w}:{crop_h}:{crop_x}:{crop_y}",
+        f"scale={target_w}:{target_h}:flags=lanczos",
+        f"ass='{ass_path_escaped}':fontsdir='{JP_FONT_DIR}'",
+    ]
+    
+    # Add speed adjustment to video filter
+    if speed_factor != 1.0 and speed_factor > 0:
+        # setpts=PTS/speed_factor speeds up the video
+        vf_parts.append(f"setpts=PTS/{speed_factor}")
+    
+    filter_complex = ",".join(vf_parts)
+    
     cmd = [
         FFMPEG_BIN, "-y",
         "-i", input_path,
         "-vf", filter_complex,
+    ]
+    
+    # Audio filter for speed adjustment
+    if speed_factor != 1.0 and speed_factor > 0:
+        # atempo supports 0.5-2.0 range; chain multiple for larger ranges
+        atempo_filters = []
+        remaining = speed_factor
+        while remaining > 2.0:
+            atempo_filters.append("atempo=2.0")
+            remaining /= 2.0
+        while remaining < 0.5:
+            atempo_filters.append("atempo=0.5")
+            remaining /= 0.5
+        atempo_filters.append(f"atempo={remaining:.4f}")
+        cmd.extend(["-af", ",".join(atempo_filters)])
+    
+    cmd.extend([
         "-c:v", "libx264",
         "-preset", "medium",
         "-crf", "20",
@@ -696,23 +960,21 @@ def create_vertical_clip(
         "-movflags", "+faststart",
         "-r", "30",
         output_path,
-    ]
+    ])
 
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if result.returncode != 0:
             logger.error(f"FFmpeg stderr: {result.stderr[-500:]}")
-            # Try without ASS subtitles (drawtext fallback)
             return create_vertical_clip_drawtext(input_path, output_path, segments, style,
                                                   crop_w, crop_h, crop_x, crop_y, target_w, target_h)
-        logger.info("Vertical clip created successfully with ASS subtitles")
+        logger.info(f"Vertical clip created successfully (speed={speed_factor}x, karaoke subtitles)")
         return True
     except Exception as e:
         logger.error(f"FFmpeg failed: {e}")
         return create_vertical_clip_drawtext(input_path, output_path, segments, style,
                                               crop_w, crop_h, crop_x, crop_y, target_w, target_h)
     finally:
-        # Cleanup ASS file
         if os.path.exists(ass_path):
             os.remove(ass_path)
 
@@ -953,10 +1215,10 @@ def remove_silence_from_video(video_path: str, output_path: str, silence_interva
 # Main pipeline
 # =========================
 
-def generate_clip(clip_id: str, video_id: str, blob_url: str, time_start: float, time_end: float):
+def generate_clip(clip_id: str, video_id: str, blob_url: str, time_start: float, time_end: float, phase_index: int = -1, speed_factor: float = 1.0):
     """Main clip generation pipeline."""
     logger.info(f"=== Starting clip generation ===")
-    logger.info(f"clip_id={clip_id}, video_id={video_id}")
+    logger.info(f"clip_id={clip_id}, video_id={video_id}, speed={speed_factor}x")
     logger.info(f"time_range={time_start:.1f}s - {time_end:.1f}s")
 
     # Initialize DB
@@ -1017,17 +1279,32 @@ def generate_clip(clip_id: str, video_id: str, blob_url: str, time_start: float,
         segments = []
         if extract_audio(segment_path, audio_path):
             segments = transcribe_audio(audio_path)
-            logger.info(f"Got {len(segments)} subtitle segments")
+            logger.info(f"Got {len(segments)} raw subtitle segments from Whisper")
         else:
             logger.warning("Audio extraction failed, proceeding without subtitles")
+
+        # 3.5. GPT-4o subtitle refinement
+        if segments:
+            phase_context = ""
+            if phase_index >= 0:
+                try:
+                    phase_context = get_phase_context(video_id, phase_index)
+                    if phase_context:
+                        logger.info(f"Got phase context ({len(phase_context)} chars) for subtitle refinement")
+                except Exception as e:
+                    logger.warning(f"Failed to get phase context: {e}")
+
+            logger.info("Refining subtitles with GPT-4o...")
+            segments = refine_subtitles_with_gpt(segments, phase_context)
+            logger.info(f"After GPT-4o refinement: {len(segments)} subtitle segments")
 
         # 4. Choose random TikTok style
         style = random.choice(SUBTITLE_STYLES)
         logger.info(f"Selected subtitle style: {style['name']}")
 
-        # 5. Create vertical clip with subtitles
+        # 5. Create vertical clip with subtitles + speed adjustment
         clip_path = os.path.join(work_dir, "clip_final.mp4")
-        if not create_vertical_clip(segment_path, clip_path, segments, style):
+        if not create_vertical_clip(segment_path, clip_path, segments, style, speed_factor=speed_factor):
             raise RuntimeError("Failed to create vertical clip")
 
         if not os.path.exists(clip_path) or os.path.getsize(clip_path) == 0:
@@ -1080,6 +1357,8 @@ def main():
     parser.add_argument("--blob-url", required=True, help="Source video blob URL (with SAS)")
     parser.add_argument("--time-start", type=float, required=True, help="Start time in seconds")
     parser.add_argument("--time-end", type=float, required=True, help="End time in seconds")
+    parser.add_argument("--phase-index", type=int, default=-1, help="Phase index for context-aware subtitles")
+    parser.add_argument("--speed-factor", type=float, default=1.0, help="Playback speed (1.0=normal, 1.2=20%% faster)")
 
     args = parser.parse_args()
 
@@ -1089,6 +1368,8 @@ def main():
         blob_url=args.blob_url,
         time_start=args.time_start,
         time_end=args.time_end,
+        phase_index=args.phase_index,
+        speed_factor=args.speed_factor,
     )
 
 
