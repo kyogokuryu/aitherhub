@@ -368,7 +368,7 @@ async def get_videos_by_user_with_clips(
             products_sql = text("""
                 SELECT video_id, product_names, gmv
                 FROM video_phases
-                WHERE video_id = ANY(:video_ids)
+                WHERE video_id = ANY(:video_ids::uuid[])
                   AND product_names IS NOT NULL
                   AND product_names != ''
                   AND product_names != '[]'
