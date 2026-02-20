@@ -907,6 +907,29 @@ export default function MainContent({
                     <p className="text-sm text-gray-200">
                       {videoData.original_filename || ''}
                     </p>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setSelectedFile(null);
+                        setUploading(false);
+                        setProgress(0);
+                        setUploadedVideoId(null);
+                        setVideoData(null);
+                        setMessage('');
+                        setMessageType('');
+                        setUploadMode(null);
+                        setCleanVideoFile(null);
+                        setCleanVideoFiles([]);
+                        setProductExcelFile(null);
+                        setTrendExcelFile(null);
+                        setDuplicateVideo(null);
+                        navigate('/');
+                      }}
+                      className="mt-3 px-6 py-3 text-sm text-[#7D01FF] border-2 border-[#7D01FF] rounded-lg hover:bg-purple-50 transition-colors cursor-pointer bg-white shadow-sm"
+                    >
+                      + {window.__t('newUploadButton') || '新しい動画をアップロード'}
+                    </button>
                   </div>
                 </div>
               </div>
