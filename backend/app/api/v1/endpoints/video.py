@@ -838,6 +838,24 @@ async def get_video_detail(
                     "content": latest.content,
                 })
 
+        # Generate preview URL from compressed blob if available
+        preview_url = None
+        compressed_blob = getattr(video, 'compressed_blob_url', None)
+        if compressed_blob and email:
+            try:
+                # compressed_blob stores the blob path like email/video_id/video_id_preview.mp4
+                # Extract just the filename part for generate_download_url
+                preview_filename = compressed_blob.split('/')[-1] if '/' in compressed_blob else compressed_blob
+                preview_result = await video_service.generate_download_url(
+                    email=email,
+                    video_id=video_id,
+                    filename=preview_filename,
+                    expires_in_minutes=60 * 24,
+                )
+                preview_url = _replace_blob_url_to_cdn(preview_result.get("download_url"))
+            except Exception:
+                preview_url = None
+
         return {
             "id": str(video.id),
             "original_filename": video.original_filename,
@@ -845,6 +863,8 @@ async def get_video_detail(
             "upload_type": getattr(video, 'upload_type', None),
             "excel_product_blob_url": getattr(video, 'excel_product_blob_url', None),
             "excel_trend_blob_url": getattr(video, 'excel_trend_blob_url', None),
+            "compressed_blob_url": compressed_blob,
+            "preview_url": preview_url,
             "reports_1": report1_items,
             "report3": report3,
         }

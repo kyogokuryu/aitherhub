@@ -340,11 +340,22 @@ export default function VideoDetail({ videoData }) {
       }
 
       if (!url) {
-        try {
-          const downloadUrl = await VideoService.getDownloadUrl(videoData.id);
-          url = downloadUrl;
-        } catch (err) {
-          console.error('Failed to get backend download URL', err);
+        // Prefer compressed preview URL if available (much lighter for playback)
+        if (videoData?.preview_url) {
+          const ok = await checkUrl(videoData.preview_url);
+          if (ok) {
+            url = videoData.preview_url;
+            console.log('Using compressed preview URL for playback');
+          }
+        }
+        // Fallback to original download URL
+        if (!url) {
+          try {
+            const downloadUrl = await VideoService.getDownloadUrl(videoData.id);
+            url = downloadUrl;
+          } catch (err) {
+            console.error('Failed to get backend download URL', err);
+          }
         }
       }
 

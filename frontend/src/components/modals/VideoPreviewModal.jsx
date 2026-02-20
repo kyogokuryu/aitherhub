@@ -203,6 +203,7 @@ export default function VideoPreviewModal({
               muted
               defaultMuted
               playsInline
+              preload="metadata"
               poster="" // Disable default poster/loading
               className="w-full h-full"
               style={{ backgroundColor: "black" }} // Prevent flash of white
