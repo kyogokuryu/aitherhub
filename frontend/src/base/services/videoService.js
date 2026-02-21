@@ -545,6 +545,58 @@ class VideoService extends BaseApiService {
       throw error;
     }
   }
+
+  // =========================================================
+  // Product Exposure Timeline API
+  // =========================================================
+
+  async getProductExposures(videoId) {
+    try {
+      const response = await this.get(`/api/v1/videos/${videoId}/product-exposures`);
+      return response;
+    } catch (error) {
+      console.warn('Failed to fetch product exposures:', error);
+      return { exposures: [], count: 0 };
+    }
+  }
+
+  async updateProductExposure(videoId, exposureId, data) {
+    try {
+      const response = await this.put(
+        `/api/v1/videos/${videoId}/product-exposures/${exposureId}`,
+        data,
+      );
+      return response;
+    } catch (error) {
+      console.warn('Failed to update product exposure:', error);
+      throw error;
+    }
+  }
+
+  async createProductExposure(videoId, data) {
+    try {
+      const response = await this.post(
+        `/api/v1/videos/${videoId}/product-exposures`,
+        data,
+      );
+      return response;
+    } catch (error) {
+      console.warn('Failed to create product exposure:', error);
+      throw error;
+    }
+  }
+
+  async deleteProductExposure(videoId, exposureId) {
+    try {
+      const response = await this.delete(
+        `/api/v1/videos/${videoId}/product-exposures/${exposureId}`,
+      );
+      return response;
+    } catch (error) {
+      console.warn('Failed to delete product exposure:', error);
+      throw error;
+    }
+  }
 }
 
 export default new VideoService();
