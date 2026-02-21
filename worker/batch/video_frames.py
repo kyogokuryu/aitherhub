@@ -58,10 +58,24 @@ FFMPEG_BIN = env("FFMPEG_PATH", "ffmpeg")
 #     print(f"[OK][STEP 0] Frames extracted → {out_dir}")
 #     return out_dir
 
+def _get_video_duration(video_path: str) -> float:
+    """Get video duration in seconds using ffprobe."""
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            capture_output=True, text=True, timeout=30,
+        )
+        return float(result.stdout.strip())
+    except Exception:
+        return 0.0
+
+
 def extract_frames(
     video_path: str,
     fps: int = 1,
     frames_root: str = "frames",
+    on_progress=None,
 ) -> str:
     """
     STEP 0 – Extract frames from video (FFmpeg, fastest CPU)
@@ -71,11 +85,19 @@ def extract_frames(
     - Không loop Python
     - Output frame_%08d.jpg (safe for very long video)
     - Pipeline phía sau chỉ cần sorted(os.listdir)
+    - on_progress(percent): optional callback for real-time progress (0-100)
     """
     out_dir = os.path.join(frames_root, "frames")
     os.makedirs(out_dir, exist_ok=True)
 
-    subprocess.run(
+    # Get expected total frames for progress tracking
+    duration = _get_video_duration(video_path)
+    expected_frames = int(duration * fps) if duration > 0 else 0
+
+    import threading, time as _time
+
+    # Run ffmpeg in background so we can monitor progress
+    proc = subprocess.Popen(
         [
             FFMPEG_BIN, "-y",
             "-i", video_path,
@@ -86,6 +108,30 @@ def extract_frames(
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+    if on_progress and expected_frames > 0:
+        def _monitor():
+            last_pct = -1
+            while proc.poll() is None:
+                try:
+                    count = len([f for f in os.listdir(out_dir) if f.endswith('.jpg')])
+                    pct = min(int(count / expected_frames * 100), 99)
+                    if pct != last_pct:
+                        on_progress(pct)
+                        last_pct = pct
+                except Exception:
+                    pass
+                _time.sleep(2)
+            # Final 100%
+            on_progress(100)
+
+        t = threading.Thread(target=_monitor, daemon=True)
+        t.start()
+
+    proc.wait()
+
+    if on_progress:
+        on_progress(100)
 
     print(f"[OK][STEP 0][FFMPEG] Frames extracted → {out_dir}")
     return out_dir
@@ -147,18 +193,26 @@ def peak_detect(arr, th):
 
 # ---------- 1.1 RAW SCORE ----------
 
-def compute_raw_scores(frame_dir):
+def compute_raw_scores(frame_dir, on_progress=None):
     files = sorted(os.listdir(frame_dir))
+    total = len(files)
     hist_scores = []
     absdiff_scores = []
 
     prev = None
-    for f in files:
+    for i, f in enumerate(files):
         img = cv2.imread(os.path.join(frame_dir, f))
         if prev is not None:
             hist_scores.append(hist_diff_score(prev, img))
             absdiff_scores.append(absdiff_score(prev, img))
         prev = img
+
+        # Report progress every 1%
+        if on_progress and total > 0 and i % max(1, total // 100) == 0:
+            on_progress(min(int(i / total * 100), 99))
+
+    if on_progress:
+        on_progress(100)
 
     return hist_scores, absdiff_scores
 
@@ -343,7 +397,7 @@ def pick_representative_frames(model, phases, total_frames, frame_dir, max_sampl
 
 # ---------- MAIN STEP 1 ENTRY ----------
 
-def detect_phases(frame_dir: str, model):
+def detect_phases(frame_dir: str, model, on_progress=None):
     files = sorted(os.listdir(frame_dir))
     total_frames = len(files)
 
@@ -357,18 +411,30 @@ def detect_phases(frame_dir: str, model):
         logger.warning(f"Only {total_frames} frame(s) in {frame_dir}, returning single phase")
         return [0], [0], total_frames
 
-    hist_scores, absdiff_scores = compute_raw_scores(frame_dir)
+    # compute_raw_scores is the heavy part (~80% of detect_phases time)
+    def _score_progress(pct):
+        if on_progress:
+            on_progress(min(int(pct * 0.8), 80))  # 0-80% for scoring
+
+    hist_scores, absdiff_scores = compute_raw_scores(frame_dir, on_progress=_score_progress)
+
+    if on_progress:
+        on_progress(85)  # Candidate detection
+
     peaks = detect_candidates(hist_scores, absdiff_scores)
     confirmed = confirm_boundaries(peaks, frame_dir, model)
+
+    if on_progress:
+        on_progress(90)  # Boundary merging
 
     merged = merge_close_boundaries(confirmed, min_gap=3)
     filtered = filter_min_phase(merged, total_frames, min_len=25)
     filtered = apply_max_phase(filtered, total_frames, max_len=150)
 
-    # keyframes = filtered.copy()
-    # rep_frames = filtered.copy()
-
-    # return keyframes, rep_frames, total_frames
     keyframes = filtered.copy()
     rep_frames = pick_representative_frames(model, keyframes, total_frames, frame_dir)
+
+    if on_progress:
+        on_progress(100)
+
     return keyframes, rep_frames, total_frames

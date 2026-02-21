@@ -706,6 +706,7 @@ async def update_video_status(video_id: str, status: str):
     sql = text("""
         UPDATE videos
         SET status = :status,
+            step_progress = 0,
             updated_at = now()
         WHERE id = :video_id
     """)
@@ -720,6 +721,27 @@ async def update_video_status(video_id: str, status: str):
 def update_video_status_sync(video_id: str, status: str):
     loop = get_event_loop()
     return loop.run_until_complete(update_video_status(video_id, status))
+
+
+async def update_video_step_progress(video_id: str, step_progress: int):
+    """Update intra-step progress (0-100) for real-time progress display."""
+    sql = text("""
+        UPDATE videos
+        SET step_progress = :step_progress
+        WHERE id = :video_id
+    """)
+    async with AsyncSessionLocal() as session:
+        await session.execute(sql, {
+            "video_id": video_id,
+            "step_progress": min(max(step_progress, 0), 100),
+        })
+        await session.commit()
+
+
+def update_video_step_progress_sync(video_id: str, step_progress: int):
+    loop = get_event_loop()
+    return loop.run_until_complete(update_video_step_progress(video_id, step_progress))
+
 
 async def get_video_status(video_id: str):
     sql = text("SELECT status FROM videos WHERE id = :video_id")

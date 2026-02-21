@@ -250,7 +250,7 @@ def _transcribe_chunk_azure(audio_path: str, chunk_index: int, filename: str) ->
 # STEP 3.2 – TRANSCRIBE (UNIFIED ENTRY POINT)
 # =========================
 
-def transcribe_audio_chunks(audio_dir: str, text_dir: str):
+def transcribe_audio_chunks(audio_dir: str, text_dir: str, on_progress=None):
     """
     Transcribe all audio chunks in audio_dir, write results to text_dir.
 
@@ -265,6 +265,8 @@ def transcribe_audio_chunks(audio_dir: str, text_dir: str):
       [TIMELINE]
       0.00s → 3.50s : こんにちは
       3.50s → 7.20s : 今日は...
+
+    on_progress(percent): optional callback for real-time progress (0-100)
     """
     os.makedirs(text_dir, exist_ok=True)
 
@@ -273,10 +275,11 @@ def transcribe_audio_chunks(audio_dir: str, text_dir: str):
         if f.startswith("chunk_") and f.endswith(".wav")
     ])
 
+    total_chunks = len(files)
     engine = WHISPER_ENGINE.lower()
-    print(f"[TRANSCRIBE] Engine: {engine}, Chunks: {len(files)}")
+    print(f"[TRANSCRIBE] Engine: {engine}, Chunks: {total_chunks}")
 
-    for f in files:
+    for idx, f in enumerate(files):
         audio_path = os.path.join(audio_dir, f)
         txt_path = os.path.join(text_dir, f.replace(".wav", ".txt"))
 
@@ -300,6 +303,11 @@ def transcribe_audio_chunks(audio_dir: str, text_dir: str):
                 )
 
         print(f"[OK] Saved → {txt_path}")
+
+        # Report progress
+        if on_progress and total_chunks > 0:
+            pct = min(int((idx + 1) / total_chunks * 100), 100)
+            on_progress(pct)
 
         # Throttle only for Azure API
         if engine == "azure":

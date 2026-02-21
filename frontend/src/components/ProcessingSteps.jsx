@@ -11,6 +11,7 @@ const normalizeProcessingStatus = (status) => {
 function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingComplete, externalProgress }) {
   const [currentStatus, setCurrentStatus] = useState(initialStatus || 'NEW');
   const [smoothProgress, setSmoothProgress] = useState(externalProgress || 0);
+  const [stepProgress, setStepProgress] = useState(0);
   const [errorMessage, setErrorMessage] = useState(null);
   const [_usePolling, setUsePolling] = useState(false);
   const statusStreamRef = useRef(null);
@@ -158,9 +159,24 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
           const newStatus = normalizeProcessingStatus(response.status);
           setCurrentStatus(newStatus);
 
-          const serverProgress = typeof response.progress === 'number' ? response.progress : 0;
-          const progress = Math.max(serverProgress, calculateProgressFromStatus(newStatus));
-          startGradualProgress(progress, newStatus);
+          const serverStepProgress = typeof response.step_progress === 'number' ? response.step_progress : 0;
+          setStepProgress(serverStepProgress);
+
+          const floor = calculateProgressFromStatus(newStatus);
+          const ceiling = calculateProgressCeilingFromStatus(newStatus);
+          let progress;
+          if (serverStepProgress > 0 && serverStepProgress < 100) {
+            progress = Math.round(floor + (ceiling - floor) * serverStepProgress / 100);
+          } else {
+            const serverProgress = typeof response.progress === 'number' ? response.progress : 0;
+            progress = Math.max(serverProgress, floor);
+          }
+
+          if (serverStepProgress > 0) {
+            setMonotonicProgress(progress);
+          } else {
+            startGradualProgress(progress, newStatus);
+          }
           lastStatusChangeRef.current = Date.now();
 
           // Stop polling if done or error
@@ -235,15 +251,38 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
       videoId: videoId,
 
       onStatusUpdate: (data) => {
-        console.log(`📡 SSE Update: ${data.status}`);
+        console.log(`📡 SSE Update: ${data.status}, step_progress: ${data.step_progress}`);
         const nextStatus = normalizeProcessingStatus(data.status);
         setCurrentStatus(nextStatus);
         setErrorMessage(null); // Clear any previous errors
         retryCountRef.current = 0; // Reset retry count on success
-        // Start gradual progress increase
-        const serverProgress = typeof data.progress === 'number' ? data.progress : 0;
-        const safeProgress = Math.max(serverProgress, calculateProgressFromStatus(nextStatus));
-        startGradualProgress(safeProgress, nextStatus);
+
+        // Track step-level progress
+        const serverStepProgress = typeof data.step_progress === 'number' ? data.step_progress : 0;
+        setStepProgress(serverStepProgress);
+
+        // Calculate progress using step_progress for finer granularity
+        const floor = calculateProgressFromStatus(nextStatus);
+        const ceiling = calculateProgressCeilingFromStatus(nextStatus);
+        let safeProgress;
+        if (serverStepProgress > 0 && serverStepProgress < 100) {
+          // Interpolate between floor and ceiling based on step_progress
+          safeProgress = Math.round(floor + (ceiling - floor) * serverStepProgress / 100);
+        } else {
+          const serverProgress = typeof data.progress === 'number' ? data.progress : 0;
+          safeProgress = Math.max(serverProgress, floor);
+        }
+
+        // When step_progress is available, set progress directly instead of gradual animation
+        if (serverStepProgress > 0) {
+          if (progressIntervalRef.current) {
+            clearInterval(progressIntervalRef.current);
+            progressIntervalRef.current = null;
+          }
+          setMonotonicProgress(safeProgress);
+        } else {
+          startGradualProgress(safeProgress, nextStatus);
+        }
         lastStatusChangeRef.current = Date.now();
 
         // Auto-stop stream if done or error
@@ -523,6 +562,9 @@ function ProcessingSteps({ videoId, initialStatus, videoTitle, onProcessingCompl
                   'text-gray-400'
                 }`}>
                 {step.label}
+                {isActive && stepProgress > 0 && stepProgress < 100 && (
+                  <span className="ml-2 text-xs text-indigo-500 font-semibold">{stepProgress}%</span>
+                )}
               </span>
             </div>
           );

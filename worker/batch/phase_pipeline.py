@@ -716,9 +716,18 @@ PHASE DESCRIPTIONを作成してください。
 
 #     return phase_units
 
-def build_phase_descriptions(phase_units):
+def build_phase_descriptions(phase_units, on_progress=None):
     results = {}       # {phase_index: phase_description}
     cta_results = {}    # {phase_index: cta_score}
+    total_tasks = len(phase_units)
+    completed_count = [0]  # mutable for closure
+
+    async def _wrapped_task(phase, sem, results, cta_results):
+        await process_one_phase_desc_task(phase, sem, results, cta_results)
+        completed_count[0] += 1
+        if on_progress and total_tasks > 0:
+            pct = min(int(completed_count[0] / total_tasks * 100), 100)
+            on_progress(pct)
 
     async def runner():
         sem = asyncio.Semaphore(MAX_CONCURRENCY)
@@ -726,7 +735,7 @@ def build_phase_descriptions(phase_units):
 
         for phase in phase_units:
             tasks.append(
-                process_one_phase_desc_task(
+                _wrapped_task(
                     phase,
                     sem,
                     results,

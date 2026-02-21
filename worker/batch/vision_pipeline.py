@@ -162,9 +162,19 @@ Chỉ trả JSON:
 def caption_keyframes(
     frame_dir: str,
     rep_frames: list[int],
+    on_progress=None,
 ):
     files = sorted(os.listdir(frame_dir))
     results = {}
+    total_tasks = len(rep_frames)
+    completed_count = [0]  # mutable for closure
+
+    async def _wrapped_task(idx, files, frame_dir, sem, results):
+        await process_one_caption_task(idx, files, frame_dir, sem, results)
+        completed_count[0] += 1
+        if on_progress and total_tasks > 0:
+            pct = min(int(completed_count[0] / total_tasks * 100), 100)
+            on_progress(pct)
 
     async def runner():
         sem = asyncio.Semaphore(MAX_CONCURRENCY)
@@ -172,7 +182,7 @@ def caption_keyframes(
 
         for idx in rep_frames:
             tasks.append(
-                process_one_caption_task(
+                _wrapped_task(
                     idx, files, frame_dir, sem, results
                 )
             )

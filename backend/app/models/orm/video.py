@@ -14,6 +14,9 @@ class Video(Base, UUIDMixin, TimestampMixin):
 
     status: Mapped[str]
 
+    # Intra-step progress (0-100) for real-time progress display
+    step_progress: Mapped[Optional[int]] = mapped_column(Integer, nullable=True, default=0, server_default="0")
+
     # Upload type: 'screen_recording' (default) or 'clean_video'
     upload_type: Mapped[str] = mapped_column(
         String(50), default="screen_recording", server_default="screen_recording"

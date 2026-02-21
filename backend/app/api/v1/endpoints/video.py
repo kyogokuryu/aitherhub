@@ -532,6 +532,7 @@ async def stream_video_status(
 
     async def event_generator():
         last_status = None
+        last_step_progress = None
         poll_count = 0
         max_polls = 7200  # 4 hours max for long videos (7200 * 2 seconds = 14400 seconds = 4 hours)
 
@@ -559,9 +560,10 @@ async def stream_video_status(
                         break
 
                     current_status = video.status
+                    current_step_progress = getattr(video, 'step_progress', None) or 0
 
-                    # Send update only if status changed
-                    if current_status != last_status:
+                    # Send update if status changed OR step_progress changed
+                    if current_status != last_status or current_step_progress != last_step_progress:
                         progress = calculate_progress(current_status)
                         message = get_status_message(current_status)
 
@@ -569,14 +571,16 @@ async def stream_video_status(
                             "video_id": str(video.id),
                             "status": current_status,
                             "progress": progress,
+                            "step_progress": current_step_progress,
                             "message": message,
                             "updated_at": video.updated_at.isoformat() if video.updated_at else None,
                         }
 
                         yield f"data: {json.dumps(payload)}\n\n"
                         last_status = current_status
+                        last_step_progress = current_step_progress
 
-                        logger.info(f"SSE: Video {video_id} status changed to {current_status} ({progress}%)")
+                        logger.info(f"SSE: Video {video_id} status={current_status} step_progress={current_step_progress}%")
 
                     # Send heartbeat every 30 seconds (15 * 2 seconds) to keep connection alive
                     if poll_count > 0 and poll_count % 15 == 0:
@@ -911,6 +915,7 @@ async def get_video_detail(
             "id": str(video_row.id),
             "original_filename": video_row.original_filename,
             "status": video_row.status,
+            "step_progress": getattr(video_row, 'step_progress', None) or 0,
             "upload_type": video_row.upload_type,
             "excel_product_blob_url": video_row.excel_product_blob_url,
             "excel_trend_blob_url": video_row.excel_trend_blob_url,

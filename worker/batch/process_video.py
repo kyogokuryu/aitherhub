@@ -61,6 +61,7 @@ from db_ops import (
     upsert_phase_insight_sync,
     insert_video_insight_sync,
     update_video_status_sync,
+    update_video_step_progress_sync,
     get_video_status_sync,
     load_video_phases_sync,
     update_video_phase_description_sync,
@@ -439,19 +440,38 @@ def main():
             update_video_status_sync(video_id, VideoStatus.STEP_0_EXTRACT_FRAMES)
             logger.info("=== STEP 0+3 PARALLEL – EXTRACT FRAMES & AUDIO TRANSCRIPTION ===")
 
+            # Combined progress: frames=50%, audio=50%
+            _parallel_progress = {"frames": 0, "audio": 0}
+
+            def _update_combined_progress():
+                combined = int(_parallel_progress["frames"] * 0.5 + _parallel_progress["audio"] * 0.5)
+                try:
+                    update_video_step_progress_sync(video_id, combined)
+                except Exception:
+                    pass
+
+            def _on_frames_progress(pct):
+                _parallel_progress["frames"] = pct
+                _update_combined_progress()
+
+            def _on_audio_progress(pct):
+                _parallel_progress["audio"] = pct
+                _update_combined_progress()
+
             def _do_extract_frames():
                 logger.info("[PARALLEL] Starting frame extraction (fps=1)")
                 extract_frames(
                     video_path=video_path,
                     fps=1,
                     frames_root=video_root(video_id),
+                    on_progress=_on_frames_progress,
                 )
                 logger.info("[PARALLEL] Frame extraction DONE")
 
             def _do_audio_transcription():
                 logger.info("[PARALLEL] Starting audio extraction + transcription")
                 extract_audio_chunks(video_path, ad)
-                transcribe_audio_chunks(ad, atd)
+                transcribe_audio_chunks(ad, atd, on_progress=_on_audio_progress)
                 logger.info("[PARALLEL] Audio transcription DONE")
 
             with ThreadPoolExecutor(max_workers=2) as pool:
@@ -466,16 +486,23 @@ def main():
                         logger.error("[PARALLEL] Task failed: %s", e)
                         raise
 
+            update_video_step_progress_sync(video_id, 100)
             logger.info("=== STEP 0+3 PARALLEL COMPLETE ===")
 
         elif start_step <= 1:
             # Only frames needed (audio already done in a previous run)
             update_video_status_sync(video_id, VideoStatus.STEP_0_EXTRACT_FRAMES)
             logger.info("=== STEP 0 – EXTRACT FRAMES ===")
+            def _on_frames_only_progress(pct):
+                try:
+                    update_video_step_progress_sync(video_id, pct)
+                except Exception:
+                    pass
             extract_frames(
                 video_path=video_path,
                 fps=1,
                 frames_root=video_root(video_id),
+                on_progress=_on_frames_only_progress,
             )
         else:
             logger.info("[SKIP] STEP 0")
@@ -492,9 +519,15 @@ def main():
             logger.info(f"[YOLO] Using device: {device}")
             model = YOLO("yolov8n.pt", verbose=False)
             model.to(device)
+            def _on_step1_progress(pct):
+                try:
+                    update_video_step_progress_sync(video_id, pct)
+                except Exception:
+                    pass
             keyframes, rep_frames, total_frames = detect_phases(
                 frame_dir=frame_dir,
                 model=model,
+                on_progress=_on_step1_progress,
             )
 
             save_step1_cache(
@@ -610,9 +643,15 @@ def main():
                     len(filtered_rep_frames), len(rep_frames),
                 )
 
+            def _on_step4_progress(pct):
+                try:
+                    update_video_step_progress_sync(video_id, pct)
+                except Exception:
+                    pass
             keyframe_captions = caption_keyframes(
                 frame_dir=frame_dir,
                 rep_frames=filtered_rep_frames if filtered_rep_frames else rep_frames,
+                on_progress=_on_step4_progress,
             )
 
         else:
@@ -786,7 +825,12 @@ def main():
         if start_step <= 6:
             update_video_status_sync(video_id, VideoStatus.STEP_6_BUILD_PHASE_DESCRIPTION)
             logger.info("=== STEP 6 – PHASE DESCRIPTION ===")
-            phase_units = build_phase_descriptions(phase_units)
+            def _on_step6_progress(pct):
+                try:
+                    update_video_step_progress_sync(video_id, pct)
+                except Exception:
+                    pass
+            phase_units = build_phase_descriptions(phase_units, on_progress=_on_step6_progress)
 
             logger.info("[DB] Persist phase_description to video_phases")
             for p in phase_units:
