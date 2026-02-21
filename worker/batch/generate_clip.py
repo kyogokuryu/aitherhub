@@ -505,7 +505,12 @@ JSON配列のみ出力（説明不要）:"""
             logger.warning("GPT-4o returned invalid format, using original segments")
             return segments
 
-        # Validate, clean, and reconstruct word-level timestamps
+        # Compute the valid time range from original Whisper segments
+        orig_min_start = min(s["start"] for s in segments)
+        orig_max_end = max(s["end"] for s in segments)
+        logger.info(f"Original Whisper time range: {orig_min_start:.2f} - {orig_max_end:.2f}")
+
+        # Validate, clean, clamp timestamps, and reconstruct word-level timestamps
         valid_segments = []
         for seg in refined:
             if isinstance(seg, dict) and "start" in seg and "end" in seg and "text" in seg:
@@ -513,6 +518,17 @@ JSON配列のみ出力（説明不要）:"""
                 if text_val:
                     s_start = float(seg["start"])
                     s_end = float(seg["end"])
+
+                    # Clamp timestamps to original Whisper range to prevent GPT-4o drift
+                    s_start = max(orig_min_start, min(s_start, orig_max_end))
+                    s_end = max(s_start + 0.1, min(s_end, orig_max_end))  # Ensure min 100ms duration
+
+                    # Ensure segments don't overlap with previous segment
+                    if valid_segments and s_start < valid_segments[-1]["end"]:
+                        s_start = valid_segments[-1]["end"]
+                        if s_start >= s_end:
+                            continue  # Skip if no room left
+
                     # Reconstruct word-level timestamps by distributing time evenly per character
                     chars = list(text_val)
                     total_chars = len(chars)
@@ -523,8 +539,8 @@ JSON配列のみ出力（説明不要）:"""
                         ch_end = s_start + (duration * (ci + 1) / total_chars)
                         words.append({"word": ch, "start": round(ch_start, 3), "end": round(ch_end, 3)})
                     valid_segments.append({
-                        "start": s_start,
-                        "end": s_end,
+                        "start": round(s_start, 3),
+                        "end": round(s_end, 3),
                         "text": text_val,
                         "words": words,
                     })
@@ -690,10 +706,11 @@ def concatenate_intervals(video_path: str, intervals: list, output_path: str) ->
         if duration < 0.5:  # Skip very short segments
             continue
 
+        # Use -ss AFTER -i for frame-accurate seeking (same approach as cut_segment)
         cmd = [
             FFMPEG_BIN, "-y",
-            "-ss", str(start),
             "-i", video_path,
+            "-ss", str(start),
             "-t", str(duration),
             "-c:v", "libx264", "-preset", "fast", "-crf", "23",
             "-c:a", "aac", "-b:a", "128k",
@@ -721,12 +738,14 @@ def concatenate_intervals(video_path: str, intervals: list, output_path: str) ->
             f.write(f"file '{seg_path}'\n")
 
     # Concatenate using FFmpeg concat demuxer
+    # Re-encode to ensure continuous timestamps (copy can cause PTS discontinuities)
     cmd = [
         FFMPEG_BIN, "-y",
         "-f", "concat",
         "-safe", "0",
         "-i", concat_list_path,
-        "-c", "copy",
+        "-c:v", "libx264", "-preset", "fast", "-crf", "23",
+        "-c:a", "aac", "-b:a", "128k",
         "-movflags", "+faststart",
         output_path,
     ]
@@ -886,24 +905,14 @@ def create_vertical_clip(
         crop_x = 0
         crop_y = (height - crop_h) // 2
 
-    # Adjust subtitle timestamps for speed change
+    # NOTE: Do NOT adjust subtitle timestamps for speed change here.
+    # The ASS subtitle filter is applied BEFORE setpts in the FFmpeg filter chain:
+    #   crop -> scale -> ass -> setpts
+    # ASS evaluates timestamps against the ORIGINAL PTS (before speed change),
+    # so the Whisper timestamps (relative to the segment video) are already correct.
+    # Adjusting them would cause double-correction and misaligned subtitles.
     if speed_factor != 1.0 and speed_factor > 0:
-        adjusted_segments = []
-        for seg in segments:
-            adj_seg = {
-                "start": seg["start"] / speed_factor,
-                "end": seg["end"] / speed_factor,
-                "text": seg["text"],
-            }
-            # Adjust word-level timestamps too
-            if "words" in seg:
-                adj_seg["words"] = [
-                    {"word": w["word"], "start": w["start"] / speed_factor, "end": w["end"] / speed_factor}
-                    for w in seg["words"]
-                ]
-            adjusted_segments.append(adj_seg)
-        segments = adjusted_segments
-        logger.info(f"Adjusted {len(segments)} subtitle segments for {speed_factor}x speed")
+        logger.info(f"Speed factor {speed_factor}x applied; subtitle timestamps kept as-is (ASS applied before setpts)")
 
     # Build ASS subtitle file
     ass_path = input_path + ".ass"
