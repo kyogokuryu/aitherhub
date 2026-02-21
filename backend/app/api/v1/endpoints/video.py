@@ -1607,3 +1607,263 @@ async def rate_phase(
     except Exception as exc:
         logger.exception(f"Failed to rate phase: {exc}")
         raise HTTPException(status_code=500, detail=f"Failed to rate phase: {exc}")
+
+
+# =========================================================
+# Product Exposure Timeline API
+# =========================================================
+
+@router.get("/{video_id}/product-exposures")
+async def get_product_exposures(
+    video_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Get AI-detected product exposure timeline for a video.
+    Returns list of product exposure segments sorted by time_start.
+    """
+    try:
+        # Verify video belongs to user
+        result = await db.execute(
+            text("SELECT user_id FROM videos WHERE id = :vid"),
+            {"vid": video_id},
+        )
+        row = result.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Video not found")
+        if row[0] != current_user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # Ensure table exists (safe for first-time access)
+        try:
+            await db.execute(text("""
+                CREATE TABLE IF NOT EXISTS video_product_exposures (
+                    id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+                    video_id UUID NOT NULL,
+                    user_id INTEGER,
+                    product_name TEXT NOT NULL,
+                    brand_name TEXT,
+                    product_image_url TEXT,
+                    time_start FLOAT NOT NULL,
+                    time_end FLOAT NOT NULL,
+                    confidence FLOAT DEFAULT 0.8,
+                    source VARCHAR(20) DEFAULT 'ai',
+                    created_at TIMESTAMPTZ DEFAULT now(),
+                    updated_at TIMESTAMPTZ DEFAULT now()
+                )
+            """))
+            await db.commit()
+        except Exception:
+            await db.rollback()
+
+        # Fetch exposures
+        result = await db.execute(
+            text("""
+                SELECT id, video_id, user_id, product_name, brand_name,
+                       product_image_url, time_start, time_end, confidence, source,
+                       created_at, updated_at
+                FROM video_product_exposures
+                WHERE video_id = :vid
+                ORDER BY time_start ASC
+            """),
+            {"vid": video_id},
+        )
+        rows = result.fetchall()
+
+        exposures = []
+        for r in rows:
+            exposures.append({
+                "id": str(r[0]),
+                "video_id": str(r[1]),
+                "user_id": r[2],
+                "product_name": r[3],
+                "brand_name": r[4],
+                "product_image_url": r[5],
+                "time_start": r[6],
+                "time_end": r[7],
+                "confidence": r[8],
+                "source": r[9],
+                "created_at": r[10].isoformat() if r[10] else None,
+                "updated_at": r[11].isoformat() if r[11] else None,
+            })
+
+        return {"exposures": exposures, "count": len(exposures)}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"Failed to get product exposures: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.put("/{video_id}/product-exposures/{exposure_id}")
+async def update_product_exposure(
+    video_id: str,
+    exposure_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Update a product exposure segment (human edit).
+    Payload can include: product_name, brand_name, time_start, time_end, confidence
+    """
+    try:
+        # Verify video belongs to user
+        result = await db.execute(
+            text("SELECT user_id FROM videos WHERE id = :vid"),
+            {"vid": video_id},
+        )
+        row = result.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Video not found")
+        if row[0] != current_user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        # Build dynamic SET clause
+        allowed_fields = ["product_name", "brand_name", "time_start", "time_end", "confidence"]
+        set_parts = []
+        params = {"eid": exposure_id, "vid": video_id}
+
+        for field in allowed_fields:
+            if field in payload:
+                set_parts.append(f"{field} = :{field}")
+                params[field] = payload[field]
+
+        if not set_parts:
+            raise HTTPException(status_code=400, detail="No fields to update")
+
+        # Mark as human-edited
+        set_parts.append("source = 'human'")
+        set_parts.append("updated_at = now()")
+
+        sql = text(f"""
+            UPDATE video_product_exposures
+            SET {', '.join(set_parts)}
+            WHERE id = :eid AND video_id = :vid
+            RETURNING id
+        """)
+
+        result = await db.execute(sql, params)
+        updated = result.fetchone()
+        await db.commit()
+
+        if not updated:
+            raise HTTPException(status_code=404, detail="Exposure not found")
+
+        return {"success": True, "id": str(updated[0])}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"Failed to update product exposure: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.post("/{video_id}/product-exposures")
+async def create_product_exposure(
+    video_id: str,
+    payload: dict,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """
+    Manually create a product exposure segment.
+    Required: product_name, time_start, time_end
+    Optional: brand_name, confidence
+    """
+    try:
+        # Verify video belongs to user
+        result = await db.execute(
+            text("SELECT user_id FROM videos WHERE id = :vid"),
+            {"vid": video_id},
+        )
+        row = result.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Video not found")
+        if row[0] != current_user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        product_name = payload.get("product_name")
+        time_start = payload.get("time_start")
+        time_end = payload.get("time_end")
+
+        if not product_name or time_start is None or time_end is None:
+            raise HTTPException(
+                status_code=400,
+                detail="product_name, time_start, time_end are required",
+            )
+
+        sql = text("""
+            INSERT INTO video_product_exposures
+                (video_id, user_id, product_name, brand_name,
+                 time_start, time_end, confidence, source)
+            VALUES
+                (:vid, :uid, :product_name, :brand_name,
+                 :time_start, :time_end, :confidence, 'human')
+            RETURNING id
+        """)
+
+        result = await db.execute(sql, {
+            "vid": video_id,
+            "uid": current_user.id,
+            "product_name": product_name,
+            "brand_name": payload.get("brand_name", ""),
+            "time_start": time_start,
+            "time_end": time_end,
+            "confidence": payload.get("confidence", 1.0),
+        })
+        new_row = result.fetchone()
+        await db.commit()
+
+        return {"success": True, "id": str(new_row[0])}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"Failed to create product exposure: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@router.delete("/{video_id}/product-exposures/{exposure_id}")
+async def delete_product_exposure(
+    video_id: str,
+    exposure_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Delete a product exposure segment."""
+    try:
+        # Verify video belongs to user
+        result = await db.execute(
+            text("SELECT user_id FROM videos WHERE id = :vid"),
+            {"vid": video_id},
+        )
+        row = result.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Video not found")
+        if row[0] != current_user.id:
+            raise HTTPException(status_code=403, detail="Forbidden")
+
+        result = await db.execute(
+            text("""
+                DELETE FROM video_product_exposures
+                WHERE id = :eid AND video_id = :vid
+                RETURNING id
+            """),
+            {"eid": exposure_id, "vid": video_id},
+        )
+        deleted = result.fetchone()
+        await db.commit()
+
+        if not deleted:
+            raise HTTPException(status_code=404, detail="Exposure not found")
+
+        return {"success": True}
+
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"Failed to delete product exposure: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))

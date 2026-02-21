@@ -1,0 +1,1313 @@
+import { Header, Body, Footer } from "./main";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import UploadService from "../base/services/uploadService";
+import VideoService from "../base/services/videoService";
+import { toast } from "../hooks/use-toast";
+import LoginModal from "./modals/LoginModal";
+import ProcessingSteps from "./ProcessingSteps";
+import VideoDetail from "./VideoDetail";
+import FeedbackPage from "./FeedbackPage";
+
+export default function MainContent({
+  children,
+  onOpenSidebar,
+  user,
+  setUser,
+  onUploadSuccess,
+  selectedVideoId,
+  showFeedback,
+  onCloseFeedback,
+}) {
+  const navigate = useNavigate();
+  const postLoginRedirectKey = "postLoginRedirect";
+  const isLoggedIn = Boolean(
+    user &&
+    (user.token ||
+      user.accessToken ||
+      user.id ||
+      user.email ||
+      user.username ||
+      user.isAuthenticated ||
+      user.isLoggedIn)
+  );
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [processingResume, setProcessingResume] = useState(false);
+  const [checkingResume, setCheckingResume] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [uploadedVideoId, setUploadedVideoId] = useState(null);
+  const [videoData, setVideoData] = useState(null);
+  const [loadingVideo, setLoadingVideo] = useState(false);
+  const [message, setMessage] = useState("");
+  const [messageType, setMessageType] = useState("");
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [resumeUploadId, setResumeUploadId] = useState(null);
+  // Clean video upload states
+  const [uploadMode, setUploadMode] = useState(null); // null | 'screen_recording' | 'clean_video'
+  const [cleanVideoFile, setCleanVideoFile] = useState(null);
+  const [cleanVideoFiles, setCleanVideoFiles] = useState([]); // multiple video files for batch upload
+  const [productExcelFile, setProductExcelFile] = useState(null);
+  const [trendExcelFile, setTrendExcelFile] = useState(null);
+  const prevIsLoggedInRef = useRef(isLoggedIn);
+  const resumeFileInputRef = useRef(null);
+  const videoRequestIdRef = useRef(0);
+  const lastRequestedVideoIdRef = useRef(null);
+  const videoAbortControllerRef = useRef(null);
+  const activeResumeUploadStorageKeyRef = useRef(null);
+  const prevSelectedVideoIdRef = useRef(selectedVideoId);
+  const processingVideoTitleRef = useRef("");
+  const [duplicateVideo, setDuplicateVideo] = useState(null); // { id, original_filename } of existing video
+
+  useEffect(() => {
+    console.log("[MainContent] user", user);
+    console.log("[MainContent] isLoggedIn", isLoggedIn);
+  }, [user, isLoggedIn]);
+
+  useEffect(() => {
+    if (selectedVideoId && !isLoggedIn) {
+      sessionStorage.setItem(postLoginRedirectKey, `/video/${selectedVideoId}`);
+      setShowLoginModal(true);
+    }
+  }, [selectedVideoId, isLoggedIn]);
+
+  const normalizeVideoData = (data, fallbackVideoId) => {
+    const r1 = Array.isArray(data.reports_1) ? data.reports_1 : (data.reports_1 ? [data.reports_1] : []);
+    let r2 = Array.isArray(data.reports_2) ? data.reports_2 : (data.reports_2 ? [data.reports_2] : []);
+    if ((!r2 || r2.length === 0) && r1 && r1.length > 0) {
+      r2 = r1.map((it) => ({
+        phase_index: it.phase_index,
+        time_start: it.time_start,
+        time_end: it.time_end,
+        insight: it.insight ?? it.phase_description ?? "",
+        video_clip_url: it.video_clip_url,
+      }));
+    }
+
+    return {
+      id: data.id || fallbackVideoId,
+      original_filename: data.original_filename,
+      status: data.status,
+      created_at: data.created_at,
+      upload_type: data.upload_type,
+      excel_product_blob_url: data.excel_product_blob_url,
+      excel_trend_blob_url: data.excel_trend_blob_url,
+      compressed_blob_url: data.compressed_blob_url,
+      preview_url: data.preview_url,
+      reports_1: r1,
+      reports_2: r2,
+      report3: Array.isArray(data.report3) ? data.report3 : (data.report3 ? [data.report3] : []),
+    };
+  };
+
+  const buildResumeUploadStorageKey = (userId, uploadId) => {
+    if (!userId || !uploadId) return null;
+    return `resumeUpload:${userId}:${uploadId}`;
+  };
+
+  const clearActiveResumeUploadStorageKey = () => {
+    const key = activeResumeUploadStorageKeyRef.current;
+    if (key) {
+      localStorage.removeItem(key);
+      activeResumeUploadStorageKeyRef.current = null;
+    }
+  };
+
+  // If token expires and user logs in again via modal, clear old upload result message.
+  useEffect(() => {
+    const prev = prevIsLoggedInRef.current;
+    // Logged in -> logged out: clear uploader state so stale file/message doesn't remain.
+    if (prev && !isLoggedIn) {
+      setSelectedFile(null);
+      setUploading(false);
+      setProgress(0);
+      setUploadedVideoId(null);
+      setVideoData(null);
+      setMessage("");
+      setMessageType("");
+      setUploadMode(null);
+      setCleanVideoFile(null);
+      setCleanVideoFiles([]);
+      setProductExcelFile(null);
+      setTrendExcelFile(null);
+      setDuplicateVideo(null);
+    }
+    if (!prev && isLoggedIn) {
+      setMessage("");
+      setMessageType("");
+    }
+    prevIsLoggedInRef.current = isLoggedIn;
+  }, [isLoggedIn]);
+
+  const checkForResumableUpload = async () => {
+    if (!user?.id) return;
+    setCheckingResume(true);
+    try {
+      const result = await UploadService.checkUploadResume(user.id);
+      if (result?.upload_resume && result?.upload_id) {
+        setResumeUploadId(result.upload_id);
+      } else {
+        setResumeUploadId(null);
+      }
+    } catch (error) {
+      console.error("Failed to check upload resume:", error);
+      setResumeUploadId(null);
+    } finally {
+      setCheckingResume(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isLoggedIn && user?.id) {
+      checkForResumableUpload();
+    } else {
+      setResumeUploadId(null);
+    }
+  }, [isLoggedIn, user?.id]);
+
+  const checkDuplicateVideo = async (filename) => {
+    try {
+      const userId = user?.id || user?.email;
+      if (!userId) return null;
+      const videoList = await VideoService.getVideosByUser(userId);
+      if (!Array.isArray(videoList)) return null;
+      const match = videoList.find(v => v.original_filename === filename);
+      return match || null;
+    } catch (e) {
+      console.warn('Duplicate check failed:', e);
+      return null;
+    }
+  };
+
+  const handleFileSelect = async (e) => {
+    if (!isLoggedIn) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.type.startsWith("video/")) {
+      setMessageType("error");
+      setMessage(window.__t('selectValidVideoError'));
+      return;
+    }
+
+    // Check for duplicate
+    const existing = await checkDuplicateVideo(file.name);
+    if (existing) {
+      setDuplicateVideo(existing);
+      setSelectedFile(file);
+      return;
+    }
+
+    setDuplicateVideo(null);
+    setSelectedFile(file);
+    setResumeUploadId(null);
+    setUploadedVideoId(null);
+    setVideoData(null);
+    setMessage("");
+    setProgress(0);
+  };
+
+  // Clean video file handlers (single file - legacy)
+  const handleCleanVideoFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith("video/")) {
+      // Check for duplicate
+      const existing = await checkDuplicateVideo(file.name);
+      if (existing) {
+        setDuplicateVideo(existing);
+        setCleanVideoFile(file);
+        return;
+      }
+      setDuplicateVideo(null);
+      setCleanVideoFile(file);
+    }
+  };
+
+  // Multiple clean video files handler (batch upload)
+  const handleCleanVideoFilesSelect = (e) => {
+    const files = Array.from(e.target.files || []);
+    const videoFiles = files.filter(f => f.type.startsWith("video/"));
+    if (videoFiles.length > 0) {
+      // Sort by filename to maintain order (part1, part2, etc.)
+      videoFiles.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+      setCleanVideoFiles(videoFiles);
+      setCleanVideoFile(videoFiles[0]); // set first for compatibility
+      setDuplicateVideo(null);
+    }
+  };
+
+  const handleRemoveCleanVideoFile = (index) => {
+    setCleanVideoFiles(prev => {
+      const updated = prev.filter((_, i) => i !== index);
+      setCleanVideoFile(updated[0] || null);
+      return updated;
+    });
+  };
+
+  const handleProductExcelSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file) setProductExcelFile(file);
+  };
+
+  const handleTrendExcelSelect = (e) => {
+    const file = e.target.files?.[0];
+    if (file) setTrendExcelFile(file);
+  };
+
+  const handleCleanVideoUpload = async () => {
+    const filesToUpload = cleanVideoFiles.length > 0 ? cleanVideoFiles : (cleanVideoFile ? [cleanVideoFile] : []);
+    if (!isLoggedIn || filesToUpload.length === 0 || !productExcelFile || !trendExcelFile || uploading) return;
+
+    setUploading(true);
+    setMessage("");
+    setProgress(0);
+
+    try {
+      if (filesToUpload.length === 1) {
+        // Single video: use existing flow
+        const video_id = await UploadService.uploadCleanVideo(
+          filesToUpload[0],
+          productExcelFile,
+          trendExcelFile,
+          user.email,
+          (percentage) => {
+            setProgress(percentage);
+          },
+          ({ uploadId }) => {
+            const storageKey = buildResumeUploadStorageKey(user?.id, uploadId);
+            if (storageKey) {
+              activeResumeUploadStorageKeyRef.current = storageKey;
+              localStorage.setItem(storageKey, "active");
+            }
+          },
+        );
+        setMessageType("success");
+        setCleanVideoFile(null);
+        setCleanVideoFiles([]);
+        setProductExcelFile(null);
+        setTrendExcelFile(null);
+        setUploadMode(null);
+        setResumeUploadId(null);
+        setUploadedVideoId(video_id);
+        if (onUploadSuccess) {
+          onUploadSuccess(video_id);
+        }
+      } else {
+        // Multiple videos: use batch upload with auto time offsets
+        // Auto-calculate time offsets: we don't know durations upfront,
+        // so we set offset=0 for all and let the user optionally adjust.
+        // For now, offset is 0 for all (user can set manually if needed).
+        const videoItems = filesToUpload.map((file, idx) => ({
+          file,
+          timeOffsetSeconds: 0, // Will be enhanced later with duration detection
+        }));
+
+        const videoIds = await UploadService.batchUploadCleanVideos(
+          videoItems,
+          productExcelFile,
+          trendExcelFile,
+          user.email,
+          (percentage) => {
+            setProgress(percentage);
+          },
+          ({ uploadId }) => {
+            const storageKey = buildResumeUploadStorageKey(user?.id, uploadId);
+            if (storageKey) {
+              activeResumeUploadStorageKeyRef.current = storageKey;
+              localStorage.setItem(storageKey, "active");
+            }
+          },
+        );
+        setMessageType("success");
+        setCleanVideoFile(null);
+        setCleanVideoFiles([]);
+        setProductExcelFile(null);
+        setTrendExcelFile(null);
+        setUploadMode(null);
+        setResumeUploadId(null);
+        // Navigate to first video
+        if (videoIds.length > 0) {
+          setUploadedVideoId(videoIds[0]);
+          if (onUploadSuccess) {
+            onUploadSuccess(videoIds[0]);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[Upload] Upload failed:', error);
+      let errorMsg = error?.message || window.__t('uploadFailedMessage');
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('Network') || errorMsg.includes('sending request')) {
+        errorMsg = 'ネットワークエラーが発生しました。インターネット接続を確認して、もう一度お試しください。';
+      } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
+        errorMsg = 'アップロードがタイムアウトしました。安定したネットワーク環境でお試しください。';
+      }
+      toast.error(errorMsg);
+    } finally {
+      clearActiveResumeUploadStorageKey();
+      setUploading(false);
+    }
+  };
+
+  const handleCancelCleanVideo = () => {
+    setCleanVideoFile(null);
+    setCleanVideoFiles([]);
+    setProductExcelFile(null);
+    setTrendExcelFile(null);
+    setDuplicateVideo(null);
+    setUploadMode(null);
+    setUploading(false);
+    setProgress(0);
+    setMessage("");
+  };
+
+  const handleResumeUpload = async () => {
+    if (!resumeUploadId || processingResume) return;
+    // Prevent multiple clicks while opening picker
+    setProcessingResume(true);
+    try {
+      // Trigger file input click to open file picker
+      resumeFileInputRef.current?.click();
+    } finally {
+      // keep processingResume true until user selects file; clear after small delay
+      // (the real processing state is handled in handleResumeFileSelect)
+      setTimeout(() => setProcessingResume(false), 300);
+    }
+  };
+
+  const handleSkipResume = async () => {
+    if (!resumeUploadId || !user?.id || processingResume) return;
+    setProcessingResume(true);
+    try {
+      // Clear upload record from backend
+      await UploadService.clearUserUploads(user.id);
+
+      // Clear upload metadata from IndexedDB
+      await UploadService.clearUploadMetadata(resumeUploadId);
+
+      // Clear UI state
+      setResumeUploadId(null);
+
+      toast.info(window.__t('uploadResumeCleared') || 'Upload resume cleared');
+    } catch (error) {
+      console.error('Failed to clear resume:', error);
+      // Still clear UI state even if backend call fails
+      setResumeUploadId(null);
+    } finally {
+      setProcessingResume(false);
+    }
+  };
+
+  const handleResumeFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !resumeUploadId || uploading || processingResume) return;
+
+    setProcessingResume(true);
+    setUploading(true);
+    setMessage("");
+    setProgress(0);
+
+    try {
+      const storageKey = buildResumeUploadStorageKey(user?.id, resumeUploadId);
+      if (storageKey) {
+        activeResumeUploadStorageKeyRef.current = storageKey;
+        localStorage.setItem(storageKey, "active");
+      }
+      // Get metadata from IndexedDB
+      const metadata = await UploadService.getUploadMetadata(resumeUploadId);
+      if (!metadata) {
+        throw new Error('Upload metadata not found. Please start a new upload.');
+      }
+
+      // Validate that the selected file is the same as the original file
+      if (file.name !== metadata.fileName) {
+        throw new Error(`選択したファイルが一致しません。再度ファイルを選択してください。`);
+      }
+
+      if (file.size !== metadata.fileSize) {
+        throw new Error(`選択したファイルが一致しません。再度ファイルを選択してください。`);
+      }
+
+      const uploadedBlockIds = metadata.uploadedBlocks || [];
+      const maxUploadedIndex = uploadedBlockIds.length > 0
+        ? Math.max(...uploadedBlockIds.map(id => {
+          // Decode base64 block ID to get original index
+          const decoded = atob(id);
+          return parseInt(decoded, 10);
+        }))
+        : -1;
+      const startFrom = maxUploadedIndex + 1;
+
+      // Resume upload from where it left off
+      await UploadService.uploadToAzure(
+        file,
+        metadata.uploadUrl,
+        resumeUploadId,
+        (percentage) => {
+          setProgress(percentage);
+        },
+        startFrom // Pass startFrom index to resume from
+      );
+
+      // Use the video_id from metadata (created during initial upload)
+      const video_id = metadata.videoId;
+      if (!video_id) {
+        throw new Error('Video ID not found in metadata. Please start a new upload.');
+      }
+
+      // Notify backend of completion
+      await UploadService.uploadComplete(
+        user.email,
+        video_id,
+        file.name,
+        resumeUploadId
+      );
+
+      // Clear upload metadata from IndexedDB
+      await UploadService.clearUploadMetadata(resumeUploadId);
+
+      setMessageType("success");
+      setSelectedFile(null);
+      setResumeUploadId(null);
+
+      // Set uploaded video ID to start processing tracking
+      setUploadedVideoId(video_id);
+
+      // Trigger refresh sidebar
+      if (onUploadSuccess) {
+        onUploadSuccess(video_id);
+      }
+    } catch (error) {
+      console.error('[Upload] Resume upload failed:', error);
+      let errorMsg = error?.message || window.__t('uploadFailedMessage');
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('Network') || errorMsg.includes('sending request')) {
+        errorMsg = 'ネットワークエラーが発生しました。インターネット接続を確認して、もう一度お試しください。';
+      } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
+        errorMsg = 'アップロードがタイムアウトしました。安定したネットワーク環境でお試しください。';
+      }
+      toast.error(errorMsg);
+    } finally {
+      clearActiveResumeUploadStorageKey();
+      setUploading(false);
+      setProcessingResume(false);
+      // Reset file input
+      if (resumeFileInputRef.current) {
+        resumeFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleUpload = async () => {
+    if (!isLoggedIn) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    if (!selectedFile) {
+      toast.error(window.__t('selectFileFirstError'));
+      return;
+    }
+
+    if (uploading) return;
+
+    setUploading(true);
+    setMessage("");
+    setProgress(0);
+
+    try {
+      const video_id = await UploadService.uploadFile(
+        selectedFile,
+        user.email,
+        (percentage) => {
+          setProgress(percentage);
+        },
+        ({ uploadId }) => {
+          const storageKey = buildResumeUploadStorageKey(user?.id, uploadId);
+          if (storageKey) {
+            activeResumeUploadStorageKeyRef.current = storageKey;
+            localStorage.setItem(storageKey, "active");
+          }
+        },
+      );
+      setMessageType("success");
+      setSelectedFile(null);
+      setResumeUploadId(null);
+
+      // Set uploaded video ID to start processing tracking
+      setUploadedVideoId(video_id);
+
+      // Trigger refresh sidebar
+      if (onUploadSuccess) {
+        onUploadSuccess(video_id);
+      }
+    } catch (error) {
+      console.error('[Upload] Upload failed:', error);
+      let errorMsg = error?.message || window.__t('uploadFailedMessage');
+      if (errorMsg.includes('Failed to fetch') || errorMsg.includes('Network') || errorMsg.includes('sending request')) {
+        errorMsg = 'ネットワークエラーが発生しました。インターネット接続を確認して、もう一度お試しください。';
+      } else if (errorMsg.includes('timeout') || errorMsg.includes('Timeout')) {
+        errorMsg = 'アップロードがタイムアウトしました。安定したネットワーク環境でお試しください。';
+      }
+      toast.error(errorMsg);
+    } finally {
+      clearActiveResumeUploadStorageKey();
+      setUploading(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setSelectedFile(null);
+    setDuplicateVideo(null);
+    setUploading(false);
+    setProgress(0);
+    setUploadedVideoId(null);
+    setVideoData(null);
+    setMessage("");
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!isLoggedIn) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      const file = files[0];
+      if (!file.type.startsWith("video/")) {
+        setMessageType("error");
+        setMessage(window.__t('selectValidVideoError'));
+        return;
+      }
+      // Check for duplicate
+      const existing = await checkDuplicateVideo(file.name);
+      if (existing) {
+        setDuplicateVideo(existing);
+        setSelectedFile(file);
+        return;
+      }
+      setDuplicateVideo(null);
+      setSelectedFile(file);
+      setUploadedVideoId(null);
+      setVideoData(null);
+      setMessage("");
+      setProgress(0);
+    }
+  };
+
+  // When switching to a different history item, clear draft upload UI only
+  // if no active upload/processing is running.
+  useEffect(() => {
+    if (selectedVideoId && !uploading && !uploadedVideoId) {
+      console.log("[MainContent] Clearing uploadedVideoId due to selectedVideoId:", selectedVideoId);
+      setUploadedVideoId(null);
+      setSelectedFile(null);
+      setProgress(0);
+      setUploading(false);
+    }
+  }, [selectedVideoId, uploadedVideoId, uploading]);
+
+  // When leaving a selected history video and returning to home, clear upload-tracking UI state.
+  useEffect(() => {
+    const prevSelectedVideoId = prevSelectedVideoIdRef.current;
+    if (prevSelectedVideoId && !selectedVideoId && !uploading && !uploadedVideoId) {
+      setUploadedVideoId(null);
+      setSelectedFile(null);
+      setProgress(0);
+      setUploading(false);
+    }
+    prevSelectedVideoIdRef.current = selectedVideoId;
+  }, [selectedVideoId, uploading, uploadedVideoId]);
+
+  useEffect(() => {
+    return () => {
+      if (videoAbortControllerRef.current) {
+        videoAbortControllerRef.current.abort();
+        videoAbortControllerRef.current = null;
+      }
+    };
+  }, []);
+
+  // Fetch video details when uploadedVideoId OR selectedVideoId changes
+  useEffect(() => {
+    const videoId = selectedVideoId || uploadedVideoId;
+    console.log("[MainContent] Fetching video details for:", videoId);
+
+    if (!isLoggedIn) {
+      lastRequestedVideoIdRef.current = null;
+      setVideoData(null);
+      setLoadingVideo(false);
+      return;
+    }
+
+    if (videoAbortControllerRef.current) {
+      videoAbortControllerRef.current.abort();
+      videoAbortControllerRef.current = null;
+    }
+
+    if (!videoId) {
+      videoRequestIdRef.current += 1;
+      lastRequestedVideoIdRef.current = null;
+      setVideoData(null);
+      setLoadingVideo(false);
+      return;
+    }
+
+    // Ignore duplicate fetch trigger for same effective video id.
+    // This avoids remount flicker when selectedVideoId is auto-set
+    // right after uploadedVideoId with the same value.
+    if (lastRequestedVideoIdRef.current === videoId) {
+      return;
+    }
+    lastRequestedVideoIdRef.current = videoId;
+
+    const currentRequestId = ++videoRequestIdRef.current;
+    const controller = new AbortController();
+    videoAbortControllerRef.current = controller;
+
+    setVideoData(null);
+    setLoadingVideo(true);
+    const fetchVideoDetails = async () => {
+      try {
+        const response = await VideoService.getVideoById(videoId, { signal: controller.signal });
+        if (currentRequestId !== videoRequestIdRef.current) return;
+        const data = response || {};
+        setVideoData(normalizeVideoData(data, videoId));
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if (currentRequestId !== videoRequestIdRef.current) return;
+        if (err?.response?.status === 403) {
+          navigate("/");
+          setVideoData(null);
+          return;
+        }
+        console.error('Failed to fetch video details:', err);
+        setVideoData(null);
+      } finally {
+        if (currentRequestId === videoRequestIdRef.current) {
+          setLoadingVideo(false);
+          if (videoAbortControllerRef.current === controller) {
+            videoAbortControllerRef.current = null;
+          }
+        }
+      }
+    };
+
+    fetchVideoDetails();
+    return () => {
+      controller.abort();
+    };
+  }, [uploadedVideoId, selectedVideoId, isLoggedIn]);
+
+  // Handle processing complete - reload video data
+  const handleProcessingComplete = useCallback(async () => {
+    const videoId = selectedVideoId || uploadedVideoId;
+    if (!videoId) return;
+    lastRequestedVideoIdRef.current = videoId;
+
+    if (videoAbortControllerRef.current) {
+      videoAbortControllerRef.current.abort();
+      videoAbortControllerRef.current = null;
+    }
+
+    const currentRequestId = ++videoRequestIdRef.current;
+    const controller = new AbortController();
+    videoAbortControllerRef.current = controller;
+
+    setLoadingVideo(true);
+    try {
+      const response = await VideoService.getVideoById(videoId, { signal: controller.signal });
+      if (currentRequestId !== videoRequestIdRef.current) return;
+      const data = response || {};
+      setVideoData(normalizeVideoData(data, videoId));
+    } catch (err) {
+      if (controller.signal.aborted) return;
+      if (currentRequestId !== videoRequestIdRef.current) return;
+      if (err?.response?.status === 403) {
+        navigate("/");
+        setVideoData(null);
+        return;
+      }
+      console.error('Failed to reload video after processing:', err);
+    } finally {
+      if (currentRequestId === videoRequestIdRef.current) {
+        setLoadingVideo(false);
+        if (videoAbortControllerRef.current === controller) {
+          videoAbortControllerRef.current = null;
+        }
+      }
+    }
+  }, [uploadedVideoId, selectedVideoId]);
+
+  const shouldShowGlobalVideoLoading =
+    loadingVideo &&
+    Boolean(selectedVideoId) &&
+    selectedVideoId !== uploadedVideoId;
+  const activeProcessingVideoId = uploadedVideoId || selectedVideoId;
+  const shouldRenderProcessing =
+    !showFeedback &&
+    !shouldShowGlobalVideoLoading &&
+    (uploading || Boolean(activeProcessingVideoId)) &&
+    (!videoData || (videoData.status !== 'DONE' && videoData.status !== 'ERROR'));
+  const processingInitialStatus = useMemo(() => {
+    if (uploading) return "UPLOADING";
+    if (videoData?.status) return videoData.status;
+    // Optimistic transition after upload complete:
+    // keep upload step completed and immediately show first analysis step loading
+    // while waiting for backend status stream/API response.
+    if (activeProcessingVideoId) return "STEP_COMPRESS_1080P";
+    return "NEW";
+  }, [uploading, videoData?.status, activeProcessingVideoId]);
+  const stableProcessingVideoTitle = useMemo(() => {
+    const nextTitle = videoData?.original_filename || selectedFile?.name || cleanVideoFile?.name || "";
+    if (nextTitle) {
+      processingVideoTitleRef.current = nextTitle;
+    }
+    return processingVideoTitleRef.current;
+  }, [videoData?.original_filename, selectedFile?.name, cleanVideoFile?.name]);
+
+  useEffect(() => {
+    if (!activeProcessingVideoId && !uploading) {
+      processingVideoTitleRef.current = "";
+    }
+  }, [activeProcessingVideoId, uploading]);
+
+  return (
+    <div className="flex flex-col h-screen">
+      <Header onOpenSidebar={onOpenSidebar} user={user} setUser={setUser} />
+
+      <LoginModal
+        open={showLoginModal}
+        onOpenChange={(nextOpen) => {
+          setShowLoginModal(nextOpen);
+          if (!nextOpen) {
+            try {
+              const storedUser = localStorage.getItem("user");
+              if (storedUser && setUser) {
+                const parsedUser = JSON.parse(storedUser);
+                setUser(parsedUser);
+                if (parsedUser?.isLoggedIn) {
+                  const redirectTo = sessionStorage.getItem(postLoginRedirectKey);
+                  if (redirectTo) {
+                    sessionStorage.removeItem(postLoginRedirectKey);
+                    navigate(redirectTo);
+                  }
+                }
+              }
+            } catch {
+              // ignore JSON/localStorage errors
+            }
+          }
+        }}
+        onSwitchToRegister={() => setShowLoginModal(false)}
+      />
+
+      <Body>
+        {showFeedback ? (
+          <FeedbackPage onBack={onCloseFeedback} />
+        ) : shouldShowGlobalVideoLoading ? (
+          <div className="w-full flex flex-col items-center justify-center">
+            <div className="rounded-2xl p-8 border transition-all duration-200 border-gray-200 bg-gray-50">
+              <div className="flex flex-col items-center text-center space-y-4">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-600"></div>
+                <p className="text-gray-700 text-sm">読み込み中...</p>
+              </div>
+            </div>
+          </div>
+        ) : shouldRenderProcessing ? (
+          <div className="w-full flex flex-col items-center justify-center">
+            <div className="w-full">
+              <h4 className="w-full text-center">
+                {window.__t('header').split('\n').map((line, idx, arr) => (
+                  <span key={idx} className="text-gray-500 italic text-lg">
+                    {line}
+                    {idx < arr.length - 1 && <br className="block md:hidden" />}
+                  </span>
+                ))}
+              </h4>
+            </div>
+            <div className="w-full mt-[20px] [@media(max-height:650px)]:mt-[20px]">
+              <h4 className="w-full mb-[22px] text-center">
+                {window.__t('uploadText').split('\n').map((line, idx, arr) => (
+                  <span key={idx} className="text-gray-900 text-2xl !font-bold font-cabin">
+                    {line}
+                    {idx < arr.length - 1 && <br className="block md:hidden" />}
+                  </span>
+                ))}
+              </h4>
+              <div className="w-full max-w-xl mx-auto">
+                <div
+                  className="rounded-2xl p-8 border transition-all duration-200 border-gray-200 bg-gray-50 hover:border-gray-300 hover:bg-gray-100"
+                  onDragOver={handleDragOver}
+                  onDrop={handleDrop}
+                >
+                  <div className="flex flex-col items-center text-center space-y-6">
+                    <ProcessingSteps
+                      videoId={activeProcessingVideoId}
+                      initialStatus={processingInitialStatus}
+                      videoTitle={stableProcessingVideoTitle}
+                      externalProgress={uploading ? progress : undefined}
+                      onProcessingComplete={handleProcessingComplete}
+                    />
+                  </div>
+                </div>
+                {/* Allow uploading another video while current one is processing */}
+                {!uploading && activeProcessingVideoId && (
+                  <div className="mt-4 flex justify-center relative z-50">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setUploadedVideoId(null);
+                        setVideoData(null);
+                        setSelectedFile(null);
+                        setCleanVideoFile(null);
+                        setCleanVideoFiles([]);
+                        setProductExcelFile(null);
+                        setTrendExcelFile(null);
+                        setUploadMode(null);
+                        setProgress(0);
+                        setMessage("");
+                        setDuplicateVideo(null);
+                      }}
+                      className="px-6 py-3 text-sm text-[#7D01FF] border-2 border-[#7D01FF] rounded-lg hover:bg-purple-50 transition-colors cursor-pointer bg-white shadow-sm"
+                    >
+                      + 新しい動画をアップロード
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        ) : videoData ? (
+          videoData.status === 'DONE' ? (
+            console.log("[MainContent] Rendering VideoDetail for videoData:", videoData) ||
+            <VideoDetail videoData={videoData} />
+          ) : videoData.status === 'ERROR' ? (
+            <div className="w-full flex flex-col items-center justify-center">
+              <div className="w-full max-w-md mx-auto">
+                <div className="rounded-2xl p-8 border transition-all duration-200 border-red-300/30 bg-red-500/10 backdrop-blur-sm">
+                  <div className="flex flex-col items-center text-center space-y-3">
+                    <div className="text-4xl">⚠️</div>
+                    <p className="text-base font-semibold text-red-200">
+                      {window.__t('errorAnalysisMessage') || '解析中にエラーが発生しました。'}
+                    </p>
+                    <p className="text-sm text-gray-200">
+                      {videoData.original_filename || ''}
+                    </p>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        e.preventDefault();
+                        setSelectedFile(null);
+                        setUploading(false);
+                        setProgress(0);
+                        setUploadedVideoId(null);
+                        setVideoData(null);
+                        setMessage('');
+                        setMessageType('');
+                        setUploadMode(null);
+                        setCleanVideoFile(null);
+                        setCleanVideoFiles([]);
+                        setProductExcelFile(null);
+                        setTrendExcelFile(null);
+                        setDuplicateVideo(null);
+                        navigate('/');
+                      }}
+                      className="mt-3 px-6 py-3 text-sm text-[#7D01FF] border-2 border-[#7D01FF] rounded-lg hover:bg-purple-50 transition-colors cursor-pointer bg-white shadow-sm"
+                    >
+                      + {window.__t('newUploadButton') || '新しい動画をアップロード'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : null
+        )
+          : children ?? (
+            <>
+              <div className="w-full flex flex-col items-center justify-center">
+                <div className="w-full">
+                  <h4 className="w-full text-center">
+                    {window.__t('header').split('\n').map((line, idx, arr) => (
+                      <span key={idx} className="text-gray-500 italic text-lg">
+                    {line}
+                    {idx < arr.length - 1 && <br className="block md:hidden" />}
+                  </span>
+                ))}
+              </h4>
+            </div>
+                <div className="w-full mt-[20px] [@media(max-height:650px)]:mt-[20px]">
+                  <h4 className="w-full mb-[22px] text-center">
+                    {window.__t('uploadText').split('\n').map((line, idx, arr) => (
+                      <span key={idx} className="text-gray-900 text-2xl !font-bold font-cabin">
+                        {line}
+                        {idx < arr.length - 1 && <br className="block md:hidden" />}
+                      </span>
+                    ))}
+                  </h4>
+                  <div className={`w-full ${(uploading || uploadedVideoId) ? 'max-w-xl' : 'max-w-md'} mx-auto`}>
+                    <div
+                      className="rounded-2xl p-8 border transition-all duration-200 border-gray-200 bg-gray-50 hover:border-gray-300 hover:bg-gray-100"
+                      onDragOver={handleDragOver}
+                      onDrop={handleDrop}
+                    >
+                      {selectedFile && duplicateVideo ? (
+                        <>
+                          <div className="flex flex-col items-center text-center space-y-4">
+                            <div className="w-14 h-14 rounded-full bg-amber-50 flex items-center justify-center">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-800">
+                                この動画はすでに解析済みです
+                              </p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                「{duplicateVideo.original_filename}」の解析結果が見つかりました
+                              </p>
+                            </div>
+                            <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
+                              <button
+                                onClick={() => {
+                                  const vid = duplicateVideo.id;
+                                  setSelectedFile(null);
+                                  setDuplicateVideo(null);
+                                  navigate(`/video/${vid}`);
+                                }}
+                                className="flex-1 h-[41px] flex items-center justify-center bg-[#7D01FF] text-white rounded-md text-sm cursor-pointer hover:bg-[#6a01d9] transition-colors"
+                              >
+                                解析結果を見る
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setDuplicateVideo(null);
+                                  setResumeUploadId(null);
+                                  setUploadedVideoId(null);
+                                  setVideoData(null);
+                                  setMessage("");
+                                  setProgress(0);
+                                }}
+                                className="flex-1 h-[41px] flex items-center justify-center bg-white text-gray-600 border border-gray-300 rounded-md text-sm cursor-pointer hover:bg-gray-50 transition-colors"
+                              >
+                                再解析する
+                              </button>
+                              <button
+                                onClick={handleCancel}
+                                className="flex-1 h-[41px] bg-gray-200 text-gray-500 rounded-md text-sm cursor-pointer hover:bg-gray-300 transition-colors"
+                              >
+                                キャンセル
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      ) : selectedFile ? (
+                        <>
+                          <div className="flex flex-col items-center text-center space-y-6">
+                            <div className="text-4xl">🎬</div>
+                            <div>
+                              <p className="text-sm font-semibold">
+                                {selectedFile.name}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {(selectedFile.size / 1024 / 1024).toFixed(2)} MB
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={handleUpload}
+                                disabled={uploading}
+                                className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-md leading-[28px] cursor-pointer hover:bg-gray-100"
+                              >
+                                {window.__t('uploadButton')}
+                              </button>
+                              <button
+                                onClick={handleCancel}
+                                className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-md text-sm cursor-pointer hover:bg-gray-100"
+                              >
+                                {window.__t('cancelButton')}
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      ) : resumeUploadId ? (
+                        <>
+                          <div className="flex flex-col items-center text-center space-y-6">
+                            <div className="text-4xl">⏸️</div>
+                            <div>
+                              <p className="text-sm font-semibold">
+                                {window.__t('resumeUploadTitle') || 'Resumable Upload Found'}
+                              </p>
+                              <p className="text-xs text-gray-500">
+                                {window.__t('resumeUploadDesc') || 'You have an incomplete upload. Continue uploading?'}
+                              </p>
+                            </div>
+                            <div className="flex gap-2">
+                              <button
+                                onClick={handleResumeUpload}
+                                disabled={uploading || processingResume}
+                                className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-md leading-[28px] hover:bg-gray-100"
+                              >
+                                {window.__t('resumeButton') || 'Resume'}
+                              </button>
+                              <button
+                                onClick={handleSkipResume}
+                                disabled={uploading || processingResume}
+                                className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-md text-sm hover:bg-gray-100"
+                              >
+                                {window.__t('skipButton') || 'Skip'}
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      ) : uploadMode === 'clean_video' && duplicateVideo ? (
+                        <>
+                          <div className="flex flex-col items-center text-center space-y-4">
+                            <div className="w-14 h-14 rounded-full bg-amber-50 flex items-center justify-center">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#d97706" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-gray-800">
+                                この動画はすでに解析済みです
+                              </p>
+                              <p className="text-xs text-gray-500 mt-1">
+                                「{duplicateVideo.original_filename}」の解析結果が見つかりました
+                              </p>
+                            </div>
+                            <div className="flex flex-col sm:flex-row gap-2 w-full max-w-xs">
+                              <button
+                                onClick={() => {
+                                  const vid = duplicateVideo.id;
+                                  setCleanVideoFile(null);
+                                  setProductExcelFile(null);
+                                  setTrendExcelFile(null);
+                                  setDuplicateVideo(null);
+                                  setUploadMode(null);
+                                  navigate(`/video/${vid}`);
+                                }}
+                                className="flex-1 h-[41px] flex items-center justify-center bg-[#7D01FF] text-white rounded-md text-sm cursor-pointer hover:bg-[#6a01d9] transition-colors"
+                              >
+                                解析結果を見る
+                              </button>
+                              <button
+                                onClick={() => {
+                                  setDuplicateVideo(null);
+                                }}
+                                className="flex-1 h-[41px] flex items-center justify-center bg-white text-gray-600 border border-gray-300 rounded-md text-sm cursor-pointer hover:bg-gray-50 transition-colors"
+                              >
+                                再解析する
+                              </button>
+                              <button
+                                onClick={handleCancelCleanVideo}
+                                className="flex-1 h-[41px] bg-gray-200 text-gray-500 rounded-md text-sm cursor-pointer hover:bg-gray-300 transition-colors"
+                              >
+                                キャンセル
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      ) : uploadMode === 'clean_video' ? (
+                        <>
+                          <div className="flex flex-col items-center text-center space-y-4">
+                            <div className="text-3xl">🎬</div>
+                            <p className="text-gray-800 text-sm font-semibold">クリーン動画 + Excelデータ</p>
+
+                            {/* Clean Video Files (multiple) */}
+                            <div className="w-full">
+                              <label className="block text-left text-xs text-gray-400 mb-1">クリーン動画（複数選択可）</label>
+                              <label className="w-full h-[38px] flex items-center justify-center bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 cursor-pointer hover:bg-gray-200 transition-colors">
+                                {cleanVideoFiles.length > 1
+                                  ? `${cleanVideoFiles.length}本の動画を選択中`
+                                  : cleanVideoFile
+                                    ? cleanVideoFile.name
+                                    : "動画を選択"}
+                                <input type="file" accept="video/*" multiple onChange={handleCleanVideoFilesSelect} className="hidden" />
+                              </label>
+                              {/* Show file list when multiple files selected */}
+                              {cleanVideoFiles.length > 1 && (
+                                <div className="mt-2 space-y-1 max-h-[120px] overflow-y-auto">
+                                  {cleanVideoFiles.map((f, idx) => (
+                                    <div key={idx} className="flex items-center justify-between bg-white border border-gray-200 rounded px-2 py-1 text-xs">
+                                      <span className="text-gray-700 truncate flex-1 text-left">
+                                        {idx + 1}. {f.name}
+                                        <span className="text-gray-400 ml-1">({(f.size / 1024 / 1024).toFixed(0)}MB)</span>
+                                      </span>
+                                      <button
+                                        onClick={() => handleRemoveCleanVideoFile(idx)}
+                                        className="ml-2 text-red-400 hover:text-red-600 text-xs flex-shrink-0"
+                                      >
+                                        ✕
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+
+                            {/* Product Excel */}
+                            <div className="w-full">
+                              <label className="block text-left text-xs text-gray-400 mb-1">商品データ (product.xlsx)</label>
+                              <label className="w-full h-[38px] flex items-center justify-center bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 cursor-pointer hover:bg-gray-200 transition-colors">
+                                {productExcelFile ? productExcelFile.name : "Excelを選択"}
+                                <input type="file" accept=".xlsx,.xls" onChange={handleProductExcelSelect} className="hidden" />
+                              </label>
+                            </div>
+
+                            {/* Trend Stats Excel */}
+                            <div className="w-full">
+                              <label className="block text-left text-xs text-gray-400 mb-1">トレンドデータ (trend_stats.xlsx)</label>
+                              <label className="w-full h-[38px] flex items-center justify-center bg-gray-100 border border-gray-300 rounded-md text-sm text-gray-700 cursor-pointer hover:bg-gray-200 transition-colors">
+                                {trendExcelFile ? trendExcelFile.name : "Excelを選択"}
+                                <input type="file" accept=".xlsx,.xls" onChange={handleTrendExcelSelect} className="hidden" />
+                              </label>
+                            </div>
+
+                            {cleanVideoFiles.length > 1 && (
+                              <p className="text-xs text-gray-400">
+                                同じExcelデータが全{cleanVideoFiles.length}本の動画に適用されます
+                              </p>
+                            )}
+
+                            <div className="flex gap-2 pt-2">
+                              <button
+                                onClick={handleCleanVideoUpload}
+                                disabled={uploading || (!cleanVideoFile && cleanVideoFiles.length === 0) || !productExcelFile || !trendExcelFile}
+                                className="w-[143px] h-[41px] flex items-center justify-center bg-white text-[#7D01FF] border border-[#7D01FF] rounded-md leading-[28px] cursor-pointer hover:bg-gray-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                {cleanVideoFiles.length > 1 ? `${cleanVideoFiles.length}本アップロード` : 'アップロード'}
+                              </button>
+                              <button
+                                onClick={handleCancelCleanVideo}
+                                className="w-[143px] h-[41px] bg-gray-300 text-gray-700 rounded-md text-sm cursor-pointer hover:bg-gray-100"
+                              >
+                                {window.__t('cancelButton')}
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex flex-col items-center text-center space-y-6">
+                            <div className="w-20 h-20 rounded-full bg-white flex items-center justify-center shadow-lg">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5e29ff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-8 h-8 text-primary"><path d="M12 3v12" /><path d="m17 8-5-5-5 5" /><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /></svg>
+                            </div>
+                            <h5 className="hidden md:inline text-gray-600 text-lg font-cabin text-center">
+                              {window.__t('dragDropText')}
+                            </h5>
+                            <div className="flex flex-col sm:flex-row gap-3">
+                              <label
+                                className="
+                                  w-[180px] h-[41px]
+                                  flex items-center justify-center
+                                  bg-white text-[#7D01FF]
+                                  border border-[#7D01FF]
+                                  rounded-md
+                                  text-[13px] leading-[28px]
+                                  font-extralight
+                                  cursor-pointer
+                                  transition-transform duration-150 ease-out
+                                  active:scale-[0.96]
+                                  select-none
+                                  hover:bg-gray-100
+                                "
+                                onMouseDown={(e) => {
+                                  if (!isLoggedIn || checkingResume) {
+                                    e.preventDefault();
+                                    if (!isLoggedIn) setShowLoginModal(true);
+                                  }
+                                }}
+                              >
+                                画面収録アップ
+                                <input
+                                  type="file"
+                                  accept="video/*"
+                                  disabled={!isLoggedIn || checkingResume}
+                                  onMouseDown={(e) => {
+                                    if (!isLoggedIn || checkingResume) {
+                                      e.preventDefault();
+                                    }
+                                  }}
+                                  onClick={(e) => {
+                                    if (!isLoggedIn || checkingResume) {
+                                      e.preventDefault();
+                                    }
+                                  }}
+                                  onChange={(e) => {
+                                    setUploadMode('screen_recording');
+                                    handleFileSelect(e);
+                                  }}
+                                  className="hidden"
+                                />
+                              </label>
+                              <button
+                                className="
+                                  w-[180px] h-[41px]
+                                  flex items-center justify-center
+                                  bg-[#7D01FF] text-white
+                                  border border-[#7D01FF]
+                                  rounded-md
+                                  text-[13px] leading-[28px]
+                                  font-extralight
+                                  cursor-pointer
+                                  transition-transform duration-150 ease-out
+                                  active:scale-[0.96]
+                                  select-none
+                                  hover:bg-[#6a01d9]
+                                "
+                                onClick={() => {
+                                  if (!isLoggedIn) {
+                                    setShowLoginModal(true);
+                                    return;
+                                  }
+                                  setUploadMode('clean_video');
+                                }}
+                              >
+                                クリーン動画アップ
+                              </button>
+                            </div>
+                          </div>
+                        </>
+                      )}
+                      {message && (
+                        <p
+                          className={`text-xs text-center ${messageType === "success"
+                            ? "text-green-600"
+                            : "text-red-600"
+                            }`}
+                        >
+                          {message}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+        {/* Hidden file input for resume functionality */}
+        <input
+          ref={resumeFileInputRef}
+          type="file"
+          accept="video/*"
+          onChange={handleResumeFileSelect}
+          className="hidden"
+        />
+      </Body>
+
+      <div className={children ? "md:hidden" : ""}>
+        <Footer showChatInput={videoData?.status === 'DONE' && !showFeedback} />
+      </div>
+    </div>
+  );
+}

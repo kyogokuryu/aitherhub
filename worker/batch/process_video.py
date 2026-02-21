@@ -75,6 +75,8 @@ from db_ops import (
     get_video_split_status_sync,
     get_user_id_of_video_sync,
     get_video_excel_urls_sync,
+    ensure_product_exposures_table_sync,
+    bulk_insert_product_exposures_sync,
 )
 
 from video_structure_features import build_video_structure_features
@@ -86,6 +88,7 @@ from excel_parser import load_excel_data, match_sales_to_phase, build_phase_stat
 from csv_slot_filter import get_important_time_ranges, filter_phases_by_importance
 from video_status import VideoStatus
 from video_compressor import compress_and_replace
+from product_detection_pipeline import detect_product_timeline
 
 
 # =========================
@@ -153,6 +156,8 @@ STEP_ORDER = [
     VideoStatus.STEP_10_ASSIGN_VIDEO_STRUCTURE_GROUP,
     VideoStatus.STEP_11_UPDATE_VIDEO_STRUCTURE_GROUP_STATS,
     VideoStatus.STEP_12_UPDATE_VIDEO_STRUCTURE_BEST,
+
+    VideoStatus.STEP_12_5_PRODUCT_DETECTION,
 
     VideoStatus.STEP_13_BUILD_REPORTS,
     VideoStatus.STEP_14_FINALIZE
@@ -1032,9 +1037,67 @@ def main():
             best_data = load_group_best_phases(ART_ROOT, video_id)
 
         # =========================
+        # STEP 12.5 – PRODUCT DETECTION
+        # =========================
+        if start_step <= 13:  # index 13 in STEP_ORDER
+            update_video_status_sync(video_id, VideoStatus.STEP_12_5_PRODUCT_DETECTION)
+            logger.info("=== STEP 12.5 – PRODUCT DETECTION ===")
+
+            def _on_product_progress(pct):
+                try:
+                    update_video_step_progress_sync(video_id, pct)
+                except Exception:
+                    pass
+
+            try:
+                # Ensure table exists
+                ensure_product_exposures_table_sync()
+
+                # Get product list from excel_data
+                product_list = []
+                if excel_data and excel_data.get("has_product_data"):
+                    product_list = excel_data.get("products", [])
+                    logger.info("[PRODUCT] Using %d products from Excel", len(product_list))
+
+                if product_list:
+                    # Load transcription segments if available
+                    transcription_segments = None
+                    transcript_file = os.path.join(audio_text_dir(video_id), "full_transcript.json")
+                    if os.path.exists(transcript_file):
+                        with open(transcript_file, "r", encoding="utf-8") as f:
+                            transcription_segments = json.load(f)
+
+                    # Run product detection
+                    exposures = detect_product_timeline(
+                        frame_dir=frames_dir(video_id),
+                        product_list=product_list,
+                        transcription_segments=transcription_segments,
+                        sample_interval=5,
+                        on_progress=_on_product_progress,
+                    )
+
+                    logger.info("[PRODUCT] Detected %d product exposure segments", len(exposures))
+
+                    # Save to DB
+                    if exposures:
+                        bulk_insert_product_exposures_sync(video_id, user_id, exposures)
+                        logger.info("[PRODUCT] Saved %d exposures to DB", len(exposures))
+
+                    # Save artifact
+                    art_path = os.path.join(video_root(video_id), "product_exposures.json")
+                    with open(art_path, "w", encoding="utf-8") as f:
+                        json.dump(exposures, f, ensure_ascii=False, indent=2)
+                else:
+                    logger.info("[PRODUCT] No product list available, skipping detection")
+            except Exception as e:
+                logger.warning("[STEP12.5] Non-fatal error (continuing): %s", e)
+        else:
+            logger.info("[SKIP] STEP 12.5")
+
+        # =========================
         # STEP 13 – BUILD REPORTS
         # =========================
-        if start_step <= 13:
+        if start_step <= 14:  # index 14 in STEP_ORDER (shifted +1)
             update_video_status_sync(video_id, VideoStatus.STEP_13_BUILD_REPORTS)
             logger.info("=== STEP 13 – BUILD REPORTS ===")
 
@@ -1112,7 +1175,7 @@ def main():
         else:
             logger.info("[SKIP] STEP 13")
 
-        if start_step <= 14:
+        if start_step <= 15:  # index 15 in STEP_ORDER (shifted +1)
             update_video_status_sync(video_id, VideoStatus.STEP_14_FINALIZE)
             logger.info("=== STEP 14 – FINALIZE PIPELINE (WAIT SPLIT) ===")
 

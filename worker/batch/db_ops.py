@@ -1633,3 +1633,117 @@ def update_video_phase_csv_metrics_sync(video_id: str, phase_index: int, **kwarg
     return loop.run_until_complete(
         update_video_phase_csv_metrics(video_id, phase_index, **kwargs)
     )
+
+
+# =========================================================
+# Product Exposure Timeline (video_product_exposures)
+# =========================================================
+
+async def ensure_product_exposures_table():
+    """CREATE TABLE IF NOT EXISTS for video_product_exposures."""
+    sql = text("""
+        CREATE TABLE IF NOT EXISTS video_product_exposures (
+            id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+            video_id UUID NOT NULL,
+            user_id INTEGER,
+            product_name TEXT NOT NULL,
+            brand_name TEXT,
+            product_image_url TEXT,
+            time_start FLOAT NOT NULL,
+            time_end FLOAT NOT NULL,
+            confidence FLOAT DEFAULT 0.8,
+            source VARCHAR(20) DEFAULT 'ai',
+            created_at TIMESTAMPTZ DEFAULT now(),
+            updated_at TIMESTAMPTZ DEFAULT now()
+        )
+    """)
+    idx1 = text("""
+        CREATE INDEX IF NOT EXISTS ix_vpe_video_id
+        ON video_product_exposures (video_id)
+    """)
+    idx2 = text("""
+        CREATE INDEX IF NOT EXISTS ix_vpe_video_time
+        ON video_product_exposures (video_id, time_start, time_end)
+    """)
+    async with AsyncSessionLocal() as session:
+        await session.execute(sql)
+        await session.execute(idx1)
+        await session.execute(idx2)
+        await session.commit()
+
+
+def ensure_product_exposures_table_sync():
+    loop = get_event_loop()
+    return loop.run_until_complete(ensure_product_exposures_table())
+
+
+async def bulk_insert_product_exposures(
+    video_id: str,
+    user_id,
+    exposures: list,
+):
+    """
+    AI検出結果を一括挿入する。
+    既存のAI生成データは削除してから挿入（冪等性）。
+    """
+    if not exposures:
+        return
+
+    delete_sql = text("""
+        DELETE FROM video_product_exposures
+        WHERE video_id = :video_id AND source = 'ai'
+    """)
+
+    insert_sql = text("""
+        INSERT INTO video_product_exposures
+            (video_id, user_id, product_name, brand_name,
+             product_image_url, time_start, time_end, confidence, source)
+        VALUES
+            (:video_id, :user_id, :product_name, :brand_name,
+             :product_image_url, :time_start, :time_end, :confidence, 'ai')
+    """)
+
+    async with AsyncSessionLocal() as session:
+        await session.execute(delete_sql, {"video_id": video_id})
+
+        for exp in exposures:
+            await session.execute(insert_sql, {
+                "video_id": video_id,
+                "user_id": user_id,
+                "product_name": exp.get("product_name", ""),
+                "brand_name": exp.get("brand_name", ""),
+                "product_image_url": exp.get("product_image_url", ""),
+                "time_start": exp.get("time_start", 0),
+                "time_end": exp.get("time_end", 0),
+                "confidence": exp.get("confidence", 0.8),
+            })
+
+        await session.commit()
+
+
+def bulk_insert_product_exposures_sync(video_id, user_id, exposures):
+    loop = get_event_loop()
+    return loop.run_until_complete(
+        bulk_insert_product_exposures(video_id, user_id, exposures)
+    )
+
+
+async def get_product_exposures(video_id: str):
+    """動画の商品タイムラインを取得する"""
+    sql = text("""
+        SELECT id, video_id, user_id, product_name, brand_name,
+               product_image_url, time_start, time_end, confidence, source,
+               created_at, updated_at
+        FROM video_product_exposures
+        WHERE video_id = :video_id
+        ORDER BY time_start ASC
+    """)
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(sql, {"video_id": video_id})
+        rows = result.fetchall()
+        return [dict(row._mapping) for row in rows]
+
+
+def get_product_exposures_sync(video_id: str):
+    loop = get_event_loop()
+    return loop.run_until_complete(get_product_exposures(video_id))
