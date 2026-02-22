@@ -4,6 +4,8 @@ product_detection_pipeline.py
 GPT-4V (Azure OpenAI) を使って動画フレームから商品/ブランドを検出し、
 連続する検出結果を統合して商品タイムラインを生成する。
 
+v2: プロンプト改善 + 音声照合強化 + スコアリング/フィルタリング
+
 入力:
   - frame_dir   : 1秒ごとに抽出されたフレーム画像のディレクトリ
   - product_list : [{"product_name": "...", "brand_name": "...", "image_url": "..."}, ...]
@@ -14,6 +16,7 @@ GPT-4V (Azure OpenAI) を使って動画フレームから商品/ブランドを
 """
 
 import os
+import re
 import json
 import time
 import random
@@ -69,11 +72,11 @@ def safe_json_load(text: str):
         return None
 
 
-# ─── BUILD PROMPT ───────────────────────────────────────────
+# ─── BUILD PROMPT (v2: 精度改善) ───────────────────────────
 def build_product_detection_prompt(product_list: list[dict]) -> str:
     """
     商品リストを含むシステムプロンプトを構築する。
-    GPT-4Vに「このフレームに映っている商品をリストから選べ」と指示する。
+    v2: 「配信者が積極的に紹介している商品」のみを検出するよう改善。
     """
     product_names = []
     for i, p in enumerate(product_list):
@@ -91,23 +94,40 @@ def build_product_detection_prompt(product_list: list[dict]) -> str:
 
 {product_list_str}
 
-このフレーム画像を分析して、画面に映っている商品を上記リストから特定してください。
+このフレーム画像を分析して、**配信者が現在アクティブに紹介・説明している商品**を上記リストから特定してください。
 
-ルール：
-1. 商品パッケージ、ロゴ、テキスト、形状などの視覚的手がかりを使って判断する
-2. 商品が映っていない場合は空配列を返す
-3. 確信度が低い場合でも、最も可能性の高い商品を返す（confidenceで表現）
-4. 複数の商品が同時に映っている場合は全て返す
+【重要な判定基準 — 以下の状態の商品のみを検出してください】
+- 配信者が手に持っている商品 → confidence: 0.85〜0.95
+- 配信者がカメラに向けて見せている商品 → confidence: 0.80〜0.95
+- 画面の中央に大きく映っている商品（クローズアップ） → confidence: 0.75〜0.90
+- 配信者が指差している・触れている商品 → confidence: 0.70〜0.85
+
+【除外すべきもの — 検出しないでください】
+- 背景や棚に並んでいるだけの商品
+- テーブルの上に置いてあるが、配信者が触れていない商品
+- 画面の端に小さく映っているだけの商品
+- 前の紹介で使った後、脇に置かれた商品
+- 配信者の後ろに見える商品ディスプレイ
+
+【判断のポイント】
+- 配信者の手や腕の位置に注目する
+- 商品が画面のどの位置にあるか（中央=紹介中の可能性高い、端=背景の可能性高い）
+- 商品のサイズ（大きく映っている=紹介中、小さい=背景）
+- 配信者の体の向き（商品に向いている=紹介中）
 
 JSON形式で返してください：
 {{
   "detected_products": [
     {{
       "product_name": "商品名（リストと完全一致）",
-      "confidence": 0.0〜1.0
+      "confidence": 0.0〜1.0,
+      "detection_reason": "hand_holding|showing_camera|closeup|pointing|background_only"
     }}
   ]
-}}"""
+}}
+
+配信者が商品を紹介していない場合は空配列を返してください：
+{{"detected_products": []}}"""
     return prompt
 
 
@@ -134,7 +154,15 @@ def detect_products_in_frame(image_path: str, prompt: str) -> list[dict]:
             )
             data = safe_json_load(resp.output_text)
             if data and "detected_products" in data:
-                return data["detected_products"]
+                # v2: background_onlyを除外
+                results = []
+                for det in data["detected_products"]:
+                    reason = det.get("detection_reason", "")
+                    if reason == "background_only":
+                        logger.debug("[PRODUCT] Skipping background-only: %s", det.get("product_name"))
+                        continue
+                    results.append(det)
+                return results
             return []
         except (RateLimitError, APITimeoutError):
             sleep_time = (2 ** attempt) + random.uniform(0, 1)
@@ -176,12 +204,12 @@ def select_sample_frames(
     return indices
 
 
-# ─── MERGE DETECTIONS INTO TIMELINE ────────────────────────
+# ─── MERGE DETECTIONS INTO TIMELINE (v2: 閾値引き上げ) ─────
 def merge_detections_to_timeline(
     frame_detections: dict[int, list[dict]],
     sample_interval: int = 5,
-    min_duration: float = 3.0,
-    confidence_threshold: float = 0.3,
+    min_duration: float = 8.0,          # v2: 3.0 → 8.0（短い映り込みを除外）
+    confidence_threshold: float = 0.5,   # v2: 0.3 → 0.5（低確信度を除外）
 ) -> list[dict]:
     """
     フレームごとの検出結果を統合して、連続する商品露出セグメントを生成する。
@@ -202,6 +230,12 @@ def merge_detections_to_timeline(
         for det in frame_detections[fidx]:
             name = det.get("product_name", "")
             conf = det.get("confidence", 0.5)
+            reason = det.get("detection_reason", "")
+
+            # v2: background_onlyは除外
+            if reason == "background_only":
+                continue
+
             if not name or conf < confidence_threshold:
                 continue
             if name not in product_frames:
@@ -263,7 +297,7 @@ def merge_detections_to_timeline(
     return exposures
 
 
-# ─── ENRICH WITH TRANSCRIPTION ──────────────────────────────
+# ─── ENRICH WITH TRANSCRIPTION (v2: ペナルティ + 部分一致) ──
 def enrich_with_transcription(
     exposures: list[dict],
     transcription_segments: list[dict],
@@ -273,76 +307,168 @@ def enrich_with_transcription(
     Whisperの文字起こしテキストから商品名の言及を検出し、
     既存のexposuresを補強する。
 
+    v2 改善点:
+    - 音声で言及されている商品 → confidenceを上げる（ブースト）
+    - 音声で言及されていない商品 → confidenceを下げる（ペナルティ）
+    - キーワード部分一致に対応（商品名を分割して照合）
+
     transcription_segments: [{"start": float, "end": float, "text": str}]
     """
     if not transcription_segments or not product_list:
         return exposures
 
-    # 商品名のキーワードマップを構築
-    product_keywords: dict[str, str] = {}
+    # 商品名のキーワードマップを構築（部分一致用に複数キーワード）
+    product_keywords: dict[str, list[str]] = {}
     for p in product_list:
         name = p.get("product_name", p.get("name", p.get("商品名", p.get("商品タイトル", ""))))
         if not name:
             continue
-        # 商品名の一部をキーワードとして登録
-        product_keywords[name.lower()] = name
-        # ブランド名もキーワードに追加
+        keywords = []
+        # フルネーム
+        keywords.append(name.lower())
+        # ブランド名
         brand = p.get("brand_name", p.get("brand", p.get("ブランド名", p.get("ブランド", ""))))
         if brand:
-            product_keywords[brand.lower()] = name
+            keywords.append(brand.lower())
+        # 商品名を分割してキーワード化（3文字以上の単語）
+        words = re.split(r'[\s　・/\-]+', name)
+        for w in words:
+            w = w.strip().lower()
+            # 一般的すぎる単語を除外
+            skip_words = {'kyogoku', 'the', 'and', 'for', 'pro', '用', '式', '型'}
+            if len(w) >= 3 and w not in skip_words:
+                keywords.append(w)
+        product_keywords[name] = list(set(keywords))  # 重複排除
 
-    # 文字起こしテキストから商品名の言及を検出
-    audio_detections = []
+    def get_transcript_text(time_start: float, time_end: float, margin: float = 10.0) -> str:
+        """指定時間帯のトランスクリプトテキストを取得（前後margin秒のバッファ付き）"""
+        texts = []
+        for seg in transcription_segments:
+            seg_start = seg.get("start", 0)
+            seg_end = seg.get("end", 0)
+            if seg_end >= (time_start - margin) and seg_start <= (time_end + margin):
+                texts.append(seg.get("text", ""))
+        return " ".join(texts).lower()
+
+    def check_audio_mention(product_name: str, transcript_text: str) -> tuple[bool, int]:
+        """商品名が音声で言及されているかチェック。(言及あり, マッチ数)を返す"""
+        if not transcript_text:
+            return False, 0
+        keywords = product_keywords.get(product_name, [product_name.lower()])
+        match_count = 0
+        for kw in keywords:
+            if kw in transcript_text:
+                match_count += 1
+        return match_count > 0, match_count
+
+    # ── v2: 既存のexposuresに音声スコアを適用 ──
+    for exp in exposures:
+        transcript_text = get_transcript_text(exp["time_start"], exp["time_end"])
+        mentioned, match_count = check_audio_mention(exp["product_name"], transcript_text)
+
+        if mentioned:
+            # 音声で言及されている → confidenceを上げる
+            boost = min(0.20, match_count * 0.08)
+            exp["confidence"] = min(1.0, exp["confidence"] + boost)
+            exp["audio_confirmed"] = True
+            logger.debug(
+                "[PRODUCT] Audio confirmed: %s (boost=%.2f, matches=%d)",
+                exp["product_name"], boost, match_count,
+            )
+        else:
+            # v2: 音声で言及されていない → confidenceを下げる（ペナルティ）
+            original_conf = exp["confidence"]
+            exp["confidence"] = round(exp["confidence"] * 0.6, 2)
+            exp["audio_confirmed"] = False
+            logger.debug(
+                "[PRODUCT] Audio NOT confirmed: %s (%.2f → %.2f)",
+                exp["product_name"], original_conf, exp["confidence"],
+            )
+
+    # ── v2: 音声のみの検出（映像で検出されなかったが音声で言及された商品）──
+    audio_only_detections = []
     for seg in transcription_segments:
         text_lower = seg.get("text", "").lower()
         seg_start = seg.get("start", 0)
         seg_end = seg.get("end", 0)
 
-        for keyword, product_name in product_keywords.items():
-            if keyword in text_lower:
-                audio_detections.append({
-                    "product_name": product_name,
-                    "time_start": seg_start,
-                    "time_end": seg_end,
-                    "confidence": 0.7,
-                    "source": "audio",
-                })
+        for product_name, keywords in product_keywords.items():
+            for kw in keywords:
+                if kw in text_lower and len(kw) >= 3:
+                    # この時間帯に既存のexposureがあるかチェック
+                    already_exists = False
+                    for exp in exposures:
+                        if exp["product_name"] == product_name:
+                            overlap = (
+                                min(exp["time_end"], seg_end)
+                                - max(exp["time_start"], seg_start)
+                            )
+                            if overlap > -10:
+                                already_exists = True
+                                break
 
-    if not audio_detections:
-        return exposures
+                    if not already_exists:
+                        audio_only_detections.append({
+                            "product_name": product_name,
+                            "brand_name": "",
+                            "time_start": seg_start,
+                            "time_end": seg_end,
+                            "confidence": 0.55,
+                            "audio_confirmed": True,
+                        })
+                    break  # 1つの商品につき1回だけ
 
-    # 既存のexposuresと音声検出を統合
-    # 同じ商品が同じ時間帯にある場合はconfidenceを上げる
-    for audio_det in audio_detections:
-        merged = False
-        for exp in exposures:
-            if exp["product_name"] == audio_det["product_name"]:
-                # 時間帯が重なっているか近い場合
-                overlap = (
-                    min(exp["time_end"], audio_det["time_end"])
-                    - max(exp["time_start"], audio_det["time_start"])
-                )
-                if overlap > -10:  # 10秒以内のギャップも統合
-                    # confidenceを上げる
-                    exp["confidence"] = min(1.0, exp["confidence"] + 0.15)
-                    # 時間範囲を拡張
-                    exp["time_start"] = min(exp["time_start"], audio_det["time_start"])
-                    exp["time_end"] = max(exp["time_end"], audio_det["time_end"])
-                    merged = True
-                    break
-
-        if not merged:
-            # 新しいexposureとして追加（音声のみの検出）
-            exposures.append({
-                "product_name": audio_det["product_name"],
-                "brand_name": "",
-                "time_start": audio_det["time_start"],
-                "time_end": audio_det["time_end"],
-                "confidence": audio_det["confidence"],
-            })
+    if audio_only_detections:
+        logger.info("[PRODUCT] Audio-only detections: %d", len(audio_only_detections))
+        exposures.extend(audio_only_detections)
 
     exposures.sort(key=lambda x: x["time_start"])
     return exposures
+
+
+# ─── POST-FILTER (v2: 新規関数) ────────────────────────────
+def post_filter_exposures(
+    exposures: list[dict],
+    final_confidence_threshold: float = 0.45,
+    min_final_duration: float = 8.0,
+) -> list[dict]:
+    """
+    v2: 音声スコアリング後の最終フィルタ。
+    低confidenceのセグメントを除外する。
+    """
+    filtered = []
+    removed = []
+    for exp in exposures:
+        duration = exp["time_end"] - exp["time_start"]
+        conf = exp.get("confidence", 0)
+
+        # 音声確認済みの場合は閾値を緩和
+        if exp.get("audio_confirmed"):
+            if conf >= 0.40 and duration >= 5.0:
+                filtered.append(exp)
+            else:
+                removed.append(exp)
+        else:
+            # 映像のみの場合は厳しめ
+            if conf >= final_confidence_threshold and duration >= min_final_duration:
+                filtered.append(exp)
+            else:
+                removed.append(exp)
+
+    if removed:
+        logger.info(
+            "[PRODUCT] Post-filter removed %d segments (kept %d)",
+            len(removed), len(filtered),
+        )
+        for r in removed[:5]:  # 最初の5件だけログ
+            logger.debug(
+                "[PRODUCT]   Removed: %s (conf=%.2f, dur=%.0fs, audio=%s)",
+                r["product_name"], r.get("confidence", 0),
+                r["time_end"] - r["time_start"],
+                r.get("audio_confirmed", False),
+            )
+
+    return filtered
 
 
 # ─── FILL BRAND NAMES ──────────────────────────────────────
@@ -365,7 +491,7 @@ def fill_brand_names(exposures: list[dict], product_list: list[dict]) -> list[di
     return exposures
 
 
-# ─── MAIN ENTRY POINT ──────────────────────────────────────
+# ─── MAIN ENTRY POINT (v2: post_filter追加) ─────────────────
 def detect_product_timeline(
     frame_dir: str,
     product_list: list[dict],
@@ -457,12 +583,16 @@ def detect_product_timeline(
     )
     logger.info("[PRODUCT] Merged into %d exposure segments", len(exposures))
 
-    # 文字起こしで補強
+    # 文字起こしで補強 + ペナルティ
     if transcription_segments:
         exposures = enrich_with_transcription(
             exposures, transcription_segments, product_list,
         )
         logger.info("[PRODUCT] After audio enrichment: %d segments", len(exposures))
+
+    # v2: 最終フィルタ（低confidence + 短時間のセグメントを除外）
+    exposures = post_filter_exposures(exposures)
+    logger.info("[PRODUCT] After post-filter: %d segments", len(exposures))
 
     # ブランド名とimage_urlを補完
     exposures = fill_brand_names(exposures, product_list)
