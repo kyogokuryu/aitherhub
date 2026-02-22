@@ -77,8 +77,8 @@ def build_product_detection_prompt(product_list: list[dict]) -> str:
     """
     product_names = []
     for i, p in enumerate(product_list):
-        name = p.get("product_name", p.get("name", f"Product_{i}"))
-        brand = p.get("brand_name", p.get("brand", ""))
+        name = p.get("product_name", p.get("name", p.get("商品名", p.get("商品タイトル", f"Product_{i}"))))
+        brand = p.get("brand_name", p.get("brand", p.get("ブランド名", p.get("ブランド", ""))))
         if brand:
             product_names.append(f"- {name} ({brand})")
         else:
@@ -281,13 +281,13 @@ def enrich_with_transcription(
     # 商品名のキーワードマップを構築
     product_keywords: dict[str, str] = {}
     for p in product_list:
-        name = p.get("product_name", p.get("name", ""))
+        name = p.get("product_name", p.get("name", p.get("商品名", p.get("商品タイトル", ""))))
         if not name:
             continue
         # 商品名の一部をキーワードとして登録
         product_keywords[name.lower()] = name
         # ブランド名もキーワードに追加
-        brand = p.get("brand_name", p.get("brand", ""))
+        brand = p.get("brand_name", p.get("brand", p.get("ブランド名", p.get("ブランド", ""))))
         if brand:
             product_keywords[brand.lower()] = name
 
@@ -350,10 +350,10 @@ def fill_brand_names(exposures: list[dict], product_list: list[dict]) -> list[di
     """product_listからbrand_nameとimage_urlを補完する"""
     name_to_info: dict[str, dict] = {}
     for p in product_list:
-        name = p.get("product_name", p.get("name", ""))
+        name = p.get("product_name", p.get("name", p.get("商品名", p.get("商品タイトル", ""))))
         if name:
             name_to_info[name] = {
-                "brand_name": p.get("brand_name", p.get("brand", "")),
+                "brand_name": p.get("brand_name", p.get("brand", p.get("ブランド名", p.get("ブランド", "")))),
                 "image_url": p.get("image_url", p.get("product_image_url", "")),
             }
 
