@@ -283,17 +283,41 @@ def match_sales_to_phase(trends: list[dict], start_sec: float, end_sec: float) -
     order_keys = []
     product_keys = []
 
+    # 多言語対応: KPI_ALIASESを使用してカラムを検出
+    try:
+        from csv_slot_filter import _find_key, KPI_ALIASES
+    except ImportError:
+        _find_key = None
+        KPI_ALIASES = None
+
     sample = trends[0]
-    for k in sample.keys():
-        kl = k.lower()
-        if any(w in kl for w in ["時間", "time", "timestamp", "秒", "sec", "minute"]):
-            time_keys.append(k)
-        if any(w in kl for w in ["売上", "sales", "revenue", "金額", "amount"]):
-            sales_keys.append(k)
-        if any(w in kl for w in ["注文", "order", "件数", "count"]):
-            order_keys.append(k)
-        if any(w in kl for w in ["商品", "product", "item", "名前", "name"]):
-            product_keys.append(k)
+
+    if _find_key and KPI_ALIASES:
+        # KPI_ALIASESを使って正確に検出
+        t_key = _find_key(sample, KPI_ALIASES["time"])
+        if t_key:
+            time_keys.append(t_key)
+        s_key = _find_key(sample, KPI_ALIASES["gmv"])
+        if s_key:
+            sales_keys.append(s_key)
+        o_key = _find_key(sample, KPI_ALIASES["order_count"])
+        if o_key:
+            order_keys.append(o_key)
+        p_key = _find_key(sample, KPI_ALIASES["product_name"])
+        if p_key:
+            product_keys.append(p_key)
+    else:
+        # フォールバック: 部分一致
+        for k in sample.keys():
+            kl = k.lower()
+            if any(w in kl for w in ["時間", "time", "timestamp", "秒", "sec", "minute", "时间", "시간"]):
+                time_keys.append(k)
+            if any(w in kl for w in ["売上", "sales", "revenue", "金額", "amount", "gmv", "成交金额", "매출"]):
+                sales_keys.append(k)
+            if any(w in kl for w in ["注文", "order", "件数", "count", "订单", "주문"]):
+                order_keys.append(k)
+            if any(w in kl for w in ["商品", "product", "item", "名前", "name", "产品", "상품"]):
+                product_keys.append(k)
 
     phase_sales = 0
     phase_orders = 0
@@ -377,7 +401,7 @@ def build_phase_stats_from_csv(
             "end": {"viewer_count": int|None, "like_count": int|None},
         }]
     """
-    from csv_slot_filter import _parse_time_to_seconds, _detect_time_key, _find_key
+    from csv_slot_filter import _parse_time_to_seconds, _detect_time_key, _find_key, KPI_ALIASES
 
     extended = [0] + keyframes + [total_frames]
 
@@ -405,8 +429,8 @@ def build_phase_stats_from_csv(
 
     # viewer_count / like_count のカラム名を検出
     sample = trends[0]
-    viewer_key = _find_key(sample, ["視聴者", "视聴者", "观看人数", "viewers", "viewer_count", "観看人数", "視聴者数"])
-    like_key = _find_key(sample, ["いいね数", "いいね", "点赞数", "likes", "like_count"])
+    viewer_key = _find_key(sample, KPI_ALIASES["viewer_count"])
+    like_key = _find_key(sample, KPI_ALIASES["like_count"])
 
     logger.info(
         "[CSV_STATS] Building phase stats from CSV: "

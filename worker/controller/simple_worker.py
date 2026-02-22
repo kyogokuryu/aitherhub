@@ -10,7 +10,7 @@ import fcntl
 import signal
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, Future
-from threading import Lock
+from threading import Lock, Thread
 from azure.storage.queue import QueueClient
 from dotenv import load_dotenv
 
@@ -28,8 +28,11 @@ MAX_WORKERS = int(os.getenv("WORKER_MAX_CONCURRENT", "5"))
 # Visibility timeout: 4 hours (video analysis can take 1-3 hours)
 VISIBILITY_TIMEOUT = 4 * 60 * 60  # 14400 seconds
 
-# Track active jobs
-active_jobs: dict[str, Future] = {}
+# Visibility renewal interval: renew every 30 minutes to keep message invisible
+VISIBILITY_RENEW_INTERVAL = 30 * 60  # 1800 seconds
+
+# Track active jobs: job_id -> {"future": Future, "msg_id": str, "pop_receipt": str}
+active_jobs: dict[str, dict] = {}
 active_jobs_lock = Lock()
 
 # Graceful shutdown flag
@@ -39,6 +42,7 @@ shutdown_requested = False
 def signal_handler(signum, frame):
     global shutdown_requested
     print(f"\n[worker] Received signal {signum}, shutting down gracefully...")
+    print(f"[worker] Waiting for {get_active_count()} active jobs to complete before exit...")
     shutdown_requested = True
 
 
@@ -50,18 +54,74 @@ def get_queue_client():
     return QueueClient.from_connection_string(conn_str, queue_name)
 
 
-def process_job(payload: dict):
-    """Process a single job. Runs in a thread."""
+def delete_message_safe(msg_id: str, pop_receipt: str):
+    """Safely delete a message from the queue after job completion."""
+    try:
+        client = get_queue_client()
+        client.delete_message(msg_id, pop_receipt)
+        return True
+    except Exception as e:
+        print(f"[worker] Warning: Failed to delete message {msg_id}: {e}")
+        return False
+
+
+def renew_visibility(msg_id: str, pop_receipt: str, job_id: str):
+    """Renew message visibility to prevent it from reappearing while processing.
+    Returns the new pop_receipt or None on failure."""
+    try:
+        client = get_queue_client()
+        result = client.update_message(
+            msg_id,
+            pop_receipt,
+            visibility_timeout=VISIBILITY_TIMEOUT,
+        )
+        return result.pop_receipt
+    except Exception as e:
+        print(f"[worker] Warning: Failed to renew visibility for job {job_id}: {e}")
+        return None
+
+
+def visibility_renewal_loop():
+    """Background thread that periodically renews visibility for active jobs."""
+    while not shutdown_requested:
+        time.sleep(VISIBILITY_RENEW_INTERVAL)
+        with active_jobs_lock:
+            for job_id, info in list(active_jobs.items()):
+                if info["future"].done():
+                    continue
+                new_receipt = renew_visibility(
+                    info["msg_id"], info["pop_receipt"], job_id
+                )
+                if new_receipt:
+                    info["pop_receipt"] = new_receipt
+
+
+def process_job(payload: dict, msg_id: str, pop_receipt: str):
+    """Process a single job. Runs in a thread.
+    Deletes the queue message only after successful completion.
+    On failure, the message will reappear after visibility timeout."""
     job_type = payload.get("job_type", "video_analysis")
     job_id = payload.get("video_id", payload.get("clip_id", "unknown"))
 
     try:
         if job_type == "generate_clip":
-            return process_clip_job(payload)
+            success = process_clip_job(payload)
         else:
-            return process_video_job(payload)
+            success = process_video_job(payload)
+
+        if success:
+            # Only delete message from queue after successful processing
+            with active_jobs_lock:
+                info = active_jobs.get(job_id, {})
+                current_receipt = info.get("pop_receipt", pop_receipt)
+            delete_message_safe(msg_id, current_receipt)
+        else:
+            print(f"[worker] Job {job_id} failed, message will reappear after visibility timeout for retry")
+
+        return success
     except Exception as e:
         print(f"[worker] Error processing job {job_id}: {e}")
+        print(f"[worker] Message will reappear after visibility timeout for retry")
         return False
     finally:
         with active_jobs_lock:
@@ -145,7 +205,7 @@ def get_active_count():
     """Get the number of currently active jobs."""
     with active_jobs_lock:
         # Clean up completed futures
-        completed = [k for k, v in active_jobs.items() if v.done()]
+        completed = [k for k, v in active_jobs.items() if v["future"].done()]
         for k in completed:
             active_jobs.pop(k, None)
         return len(active_jobs)
@@ -177,19 +237,24 @@ def poll_and_process(executor: ThreadPoolExecutor):
 
             # Check if this job is already being processed
             with active_jobs_lock:
-                if job_id in active_jobs and not active_jobs[job_id].done():
+                if job_id in active_jobs and not active_jobs[job_id]["future"].done():
                     print(f"[worker] Job {job_id} already in progress, skipping duplicate")
                     continue
 
             print(f"[worker] Received job: type={job_type}, id={job_id} (active: {get_active_count()}/{MAX_WORKERS})")
 
-            # Delete message from queue before processing
-            client.delete_message(msg.id, msg.pop_receipt)
+            # DO NOT delete message here - it will be deleted after successful processing
+            # The message stays invisible for VISIBILITY_TIMEOUT seconds
+            # If the job fails or worker crashes, the message will reappear for retry
 
             # Submit job to thread pool
-            future = executor.submit(process_job, payload)
+            future = executor.submit(process_job, payload, msg.id, msg.pop_receipt)
             with active_jobs_lock:
-                active_jobs[job_id] = future
+                active_jobs[job_id] = {
+                    "future": future,
+                    "msg_id": msg.id,
+                    "pop_receipt": msg.pop_receipt,
+                }
 
         except Exception as e:
             print(f"[worker] Error parsing message: {e}")
@@ -221,6 +286,11 @@ def main():
     print(f"[worker] Starting simple queue worker (max_concurrent={MAX_WORKERS})...")
     print(f"[worker] Queue: {os.getenv('AZURE_QUEUE_NAME', 'video-jobs')}")
     print(f"[worker] Visibility timeout: {VISIBILITY_TIMEOUT}s ({VISIBILITY_TIMEOUT // 3600}h)")
+    print(f"[worker] Message deletion: after successful completion only (retry on failure)")
+
+    # Start background visibility renewal thread
+    renewal_thread = Thread(target=visibility_renewal_loop, daemon=True)
+    renewal_thread.start()
 
     executor = ThreadPoolExecutor(max_workers=MAX_WORKERS)
 

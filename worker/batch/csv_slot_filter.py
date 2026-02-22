@@ -12,6 +12,154 @@ logger = logging.getLogger("process_video")
 
 
 # ======================================================
+# MULTILINGUAL KPI COLUMN MAPPING
+# ======================================================
+# TikTok LIVE Analytics Excelは言語設定によりヘッダーが異なる。
+# どの言語のExcelが来ても自動的に正しいKPIにマッピングする。
+# 対応言語: 日本語, 中国語(簡体/繁体), 英語, 韓国語, ベトナム語, タイ語, インドネシア語
+
+KPI_ALIASES = {
+    "gmv": [
+        "GMV", "gmv", "売上", "成交金额", "成交金額", "销售额", "銷售額",
+        "Revenue", "revenue", "Sales", "sales",
+        "매출액", "매출", "Doanh thu", "doanh thu",
+        "ยอดขาย", "Pendapatan", "pendapatan",
+    ],
+    "order_count": [
+        "注文", "SKU注文数", "订单数", "訂單數", "成交件数", "成交件數",
+        "SKU订单数", "SKU訂單數",
+        "Orders", "orders", "Order Count", "order_count", "SKU Orders",
+        "주문수", "주문", "Đơn hàng", "Số đơn hàng",
+        "คำสั่งซื้อ", "Pesanan", "pesanan", "Jumlah Pesanan",
+    ],
+    "viewer_count": [
+        "視聴者", "視聴者数", "視聴数", "视聴者",
+        "观看人数", "观众数", "在线人数", "觀看人數", "觀眾數",
+        "Viewers", "viewers", "Viewer Count", "viewer_count",
+        "Live Viewers", "live_viewers",
+        "시청자", "시청자수", "Người xem", "Lượt xem",
+        "ผู้ชม", "Penonton", "penonton", "Jumlah Penonton",
+    ],
+    "like_count": [
+        "いいね数", "いいね", "点赞数", "点赞", "點讚數", "按讚數",
+        "Likes", "likes", "Like Count", "like_count",
+        "좋아요", "좋아요수", "Lượt thích",
+        "ถูกใจ", "ยอดไลค์", "Suka", "suka", "Jumlah Suka",
+    ],
+    "comment_count": [
+        "コメント数", "评论数", "评论", "評論數",
+        "Comments", "comments", "Comment Count", "comment_count",
+        "댓글수", "댓글", "Bình luận", "Lượt bình luận",
+        "ความคิดเห็น", "Komentar", "komentar", "Jumlah Komentar",
+    ],
+    "share_count": [
+        "シェア数", "分享次数", "分享数", "分享數", "分享次數",
+        "Shares", "shares", "Share Count", "share_count",
+        "공유수", "공유", "Chia sẻ", "Lượt chia sẻ",
+        "แชร์", "Bagikan", "bagikan", "Jumlah Bagikan",
+    ],
+    "new_followers": [
+        "新規フォロワー数", "新增粉丝数", "新增关注", "新增粉絲數",
+        "New Followers", "new_followers", "Follower Gain",
+        "신규 팔로워", "새 팔로워", "Người theo dõi mới",
+        "ผู้ติดตามใหม่", "Pengikut Baru", "pengikut baru",
+    ],
+    "product_clicks": [
+        "商品クリック数", "商品点击量", "商品点击数", "商品點擊量",
+        "Product Clicks", "product_clicks", "Product Click Count",
+        "상품 클릭수", "상품클릭", "Lượt nhấp sản phẩm",
+        "คลิกสินค้า", "Klik Produk", "klik produk",
+    ],
+    "product_impressions": [
+        "商品インプレッション", "商品インプレッション数",
+        "商品曝光量", "商品展示量", "商品曝光數",
+        "Product Impressions", "product_impressions", "Product Impression Count",
+        "상품 노출수", "Lượt hiển thị sản phẩm",
+        "การแสดงผลสินค้า", "Tayangan Produk", "tayangan produk",
+    ],
+    "impressions": [
+        "インプレッション数", "展示量", "曝光量", "展示數",
+        "Impressions", "impressions", "Impression Count",
+        "노출수", "Lượt hiển thị", "การแสดงผล", "Tayangan", "tayangan",
+    ],
+    "gpm": [
+        "視聴GPM", "表示GPM", "GPM", "gpm",
+        "千次观看成交金额", "千次觀看成交金額",
+        "gmv_per_1k_views", "GMV per 1K Views",
+        "GPM",
+    ],
+    "ctor": [
+        "CTOR", "ctor", "CTOR（SKU注文数）", "CVR", "cvr",
+        "点击成交转化率", "點擊成交轉化率",
+        "Click Through Order Rate", "click_conversion",
+        "전환율", "Tỷ lệ chuyển đổi",
+    ],
+    "aov": [
+        "AOV", "aov", "客単価", "客单价", "客單價",
+        "Average Order Value", "average_order_value",
+        "평균주문금액", "Giá trị đơn hàng trung bình",
+    ],
+    "product_sales": [
+        "商品の販売数", "商品销量", "销售量", "商品銷量",
+        "Product Sales", "product_sales", "Units Sold", "units_sold",
+        "상품 판매수", "Số lượng bán", "ยอดขายสินค้า", "Penjualan Produk",
+    ],
+    "customers": [
+        "カスタマー数", "成交客户数", "买家数", "成交客戶數",
+        "Customers", "customers", "Buyers", "buyers",
+        "고객수", "구매자수", "Khách hàng", "Người mua",
+        "ลูกค้า", "Pelanggan", "pelanggan", "Pembeli",
+    ],
+    "live_ctr": [
+        "LIVE CTR", "live_ctr", "直播点击率", "直播點擊率",
+        "Live Click Through Rate", "click_rate",
+    ],
+    "comment_rate": [
+        "コメント率", "评论率", "評論率",
+        "Comment Rate", "comment_rate",
+        "댓글률", "Tỷ lệ bình luận",
+    ],
+    "payment_rate": [
+        "支払率", "支付率",
+        "Payment Rate", "payment_rate", "Pay Rate",
+        "결제율", "Tỷ lệ thanh toán",
+        "อัตราการชำระเงิน", "Tingkat Pembayaran",
+    ],
+    "cart_adds": [
+        "カートに追加された回数", "加购次数", "加入购物车", "加購次數",
+        "Add to Cart", "add_to_cart", "Cart Adds", "cart_adds",
+        "장바구니 추가", "Thêm vào giỏ hàng",
+        "เพิ่มลงตะกร้า", "Tambah ke Keranjang",
+    ],
+    "tap_through_rate": [
+        "タップスルー率", "点击率", "點擊率",
+        "Tap Through Rate", "tap_through_rate",
+        "탭 스루율", "Tỷ lệ nhấp", "อัตราการแตะ", "Rasio Klik",
+    ],
+    "time": [
+        "時間", "时间", "時間",
+        "Time", "time", "Timestamp", "timestamp",
+        "시간", "Thời gian", "เวลา", "Waktu", "waktu",
+    ],
+    "product_name": [
+        "商品名", "商品名称", "产品名称", "商品名稱",
+        "Product Name", "product_name", "Product Title",
+        "상품명", "Tên sản phẩm", "ชื่อสินค้า", "Nama Produk",
+    ],
+    "product_id": [
+        "商品ID", "产品ID", "商品ID",
+        "Product ID", "product_id", "SKU ID", "sku_id",
+        "상품ID", "ID sản phẩm", "ID สินค้า", "ID Produk",
+    ],
+}
+
+
+def get_kpi_aliases(kpi_name: str) -> list[str]:
+    """KPI名から多言語候補キーリストを取得する。"""
+    return KPI_ALIASES.get(kpi_name, [kpi_name])
+
+
+# ======================================================
 # RULE DEFINITIONS
 # ======================================================
 
@@ -21,14 +169,14 @@ RULES = [
     {
         "name": "high_gmv",
         "description": "GMVが高い（売上発生）",
-        "keys": ["gmv"],
+        "keys": KPI_ALIASES["gmv"],
         "condition": "gt_zero",
         "weight": 3,
     },
     {
         "name": "high_orders",
         "description": "成約件数が多い",
-        "keys": ["成交件数", "订单数", "orders"],
+        "keys": KPI_ALIASES["order_count"],
         "condition": "gt_zero",
         "weight": 3,
     },
@@ -36,14 +184,14 @@ RULES = [
     {
         "name": "high_conversion",
         "description": "クリック成交転化率が高い",
-        "keys": ["点击成交转化率", "click_conversion"],
+        "keys": KPI_ALIASES["ctor"],
         "condition": "above_mean",
         "weight": 2,
     },
     {
         "name": "high_gmv_per_view",
         "description": "千次観看成交金額が高い",
-        "keys": ["千次观看成交金额", "gmv_per_1k_views"],
+        "keys": KPI_ALIASES["gpm"],
         "condition": "above_mean",
         "weight": 2,
     },
@@ -51,28 +199,28 @@ RULES = [
     {
         "name": "high_viewers",
         "description": "観看人数が多い",
-        "keys": ["观看人数", "viewers"],
+        "keys": KPI_ALIASES["viewer_count"],
         "condition": "above_mean",
         "weight": 1,
     },
     {
         "name": "high_comments",
         "description": "コメント率が高い",
-        "keys": ["评论率", "comment_rate"],
+        "keys": KPI_ALIASES["comment_rate"],
         "condition": "above_mean",
         "weight": 1,
     },
     {
         "name": "high_click_rate",
         "description": "直播点击率が高い",
-        "keys": ["直播点击率", "click_rate"],
+        "keys": KPI_ALIASES["live_ctr"],
         "condition": "above_mean",
         "weight": 1,
     },
     {
         "name": "new_followers",
         "description": "新規フォロワー獲得",
-        "keys": ["新增粉丝数", "new_followers"],
+        "keys": KPI_ALIASES["new_followers"],
         "condition": "gt_zero",
         "weight": 2,
     },
@@ -141,13 +289,18 @@ def _parse_time_to_seconds(val) -> float | None:
 
 
 def _detect_time_key(entries: list[dict]) -> str | None:
-    """トレンドデータから時刻カラムを自動検出"""
+    """トレンドデータから時刻カラムを自動検出（多言語対応）"""
     if not entries:
         return None
     sample = entries[0]
+    # KPI_ALIASES["time"]を先にチェック
+    found = _find_key(sample, KPI_ALIASES["time"])
+    if found:
+        return found
+    # フォールバック: 部分一致
     for k in sample.keys():
         kl = k.lower()
-        if any(w in kl for w in ["时间", "時間", "time", "timestamp"]):
+        if any(w in kl for w in ["时间", "時間", "time", "timestamp", "시간", "waktu", "เวลา"]):
             return k
     return None
 

@@ -198,10 +198,16 @@ class VideoService:
                 except Exception:
                     pass
 
-        # Also clean up any other stale upload records for this user
+        # Clean up stale upload records for this user (older than 24 hours)
+        # Do NOT delete all records - other uploads may be in progress
         try:
+            from datetime import datetime, timedelta
+            stale_cutoff = datetime.utcnow() - timedelta(hours=24)
             await db.execute(
-                delete(Upload).where(Upload.user_id == user_id)
+                delete(Upload).where(
+                    Upload.user_id == user_id,
+                    Upload.created_at < stale_cutoff,
+                )
             )
             await db.commit()
         except Exception:
