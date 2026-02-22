@@ -420,10 +420,13 @@ def main():
             start_step = 0
             logger.info(f"[RESUME] force restart from STEP 0 (status={current_status})")
 
-            if os.path.exists(ART_ROOT):
-                logger.info("[CLEAN] Remove old artifact folder")
-                shutil.rmtree(ART_ROOT, ignore_errors=True)
-                os.makedirs(ART_ROOT, exist_ok=True)
+            # Only remove THIS video's artifact folder (not the shared ART_ROOT)
+            # to avoid deleting other videos' data during concurrent processing
+            my_art_dir = video_root(video_id)
+            if os.path.exists(my_art_dir):
+                logger.info("[CLEAN] Remove old artifact folder for %s", video_id)
+                shutil.rmtree(my_art_dir, ignore_errors=True)
+            os.makedirs(my_art_dir, exist_ok=True)
 
         # =========================
         # BACKGROUND COMPRESSION (non-blocking)
@@ -696,7 +699,7 @@ def main():
             logger.info("[EXCEL] Merging sales/trend data into phase_units...")
             from csv_slot_filter import (
                 _find_key, _safe_float, _parse_time_to_seconds,
-                _detect_time_key, compute_slot_scores, KPI_ALIASES,
+                _detect_time_key, compute_slot_scores,
             )
 
             trends = excel_data["trends"]
@@ -704,17 +707,17 @@ def main():
             time_key = _detect_time_key(trends)
             sample = trends[0] if trends else {}
 
-            # CSVカラム名を自動検出（多言語対応）
-            gmv_key = _find_key(sample, KPI_ALIASES["gmv"])
-            order_key = _find_key(sample, KPI_ALIASES["order_count"])
-            viewer_key = _find_key(sample, KPI_ALIASES["viewer_count"])
-            like_key = _find_key(sample, KPI_ALIASES["like_count"])
-            comment_key = _find_key(sample, KPI_ALIASES["comment_count"])
-            share_key = _find_key(sample, KPI_ALIASES["share_count"])
-            follower_key = _find_key(sample, KPI_ALIASES["new_followers"])
-            click_key = _find_key(sample, KPI_ALIASES["product_clicks"])
-            conv_key = _find_key(sample, KPI_ALIASES["ctor"])
-            gpm_key = _find_key(sample, KPI_ALIASES["gpm"])
+            # CSVカラム名を自動検出
+            gmv_key = _find_key(sample, ["gmv", "GMV", "成交金额"])
+            order_key = _find_key(sample, ["成交件数", "订单数", "orders"])
+            viewer_key = _find_key(sample, ["观看人数", "viewers", "viewer_count"])
+            like_key = _find_key(sample, ["点赞数", "likes", "like_count"])
+            comment_key = _find_key(sample, ["评论数", "comments", "comment_count"])
+            share_key = _find_key(sample, ["分享次数", "shares", "share_count"])
+            follower_key = _find_key(sample, ["新增粉丝数", "new_followers"])
+            click_key = _find_key(sample, ["商品点击量", "product_clicks"])
+            conv_key = _find_key(sample, ["点击成交转化率", "click_conversion"])
+            gpm_key = _find_key(sample, ["千次观看成交金额", "gmv_per_1k_views", "GPM"])
 
             logger.info("[CSV_METRICS] Detected keys: gmv=%s, order=%s, viewer=%s, like=%s, comment=%s, share=%s, follower=%s, click=%s, conv=%s, gpm=%s",
                 gmv_key, order_key, viewer_key, like_key, comment_key, share_key, follower_key, click_key, conv_key, gpm_key)

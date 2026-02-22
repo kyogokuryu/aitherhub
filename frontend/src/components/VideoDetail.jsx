@@ -7,7 +7,7 @@ import VideoService from "../base/services/videoService";
 import "../assets/css/sidebar.css";
 import AnalyticsSection from "./AnalyticsSection";
 import ClipSection from "./ClipSection";
-import ProductTimeline from "./ProductTimeline";
+// ProductTimeline is now integrated into AnalyticsSection
 
 export default function VideoDetail({ videoData }) {
   const markdownTableStyles = `
@@ -607,8 +607,7 @@ export default function VideoDetail({ videoData }) {
           {/* Analytics Section - above report */}
           <AnalyticsSection reports1={videoData?.reports_1} videoData={videoData} />
 
-          {/* Product Timeline Section */}
-          <ProductTimeline videoId={videoData?.id} videoDuration={videoData?.duration} />
+          {/* Product Timeline is now integrated into AnalyticsSection above */}
 
           <div className="w-full mt-6 mx-auto">
             <div className="rounded-2xl bg-gray-50 border border-gray-200">
