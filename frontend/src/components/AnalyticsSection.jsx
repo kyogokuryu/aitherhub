@@ -520,6 +520,7 @@ export default function AnalyticsSection({ reports1, videoData }) {
     legend: { align: "right", verticalAlign: "top", floating: true, itemStyle: { fontSize: "10px", color: "#6b7280" } },
     xAxis: {
       type: "linear",
+      crosshair: { width: 1, color: "#d1d5db", dashStyle: "Dash" },
       labels: { formatter: function () { return fmtTime(this.value); }, style: { fontSize: "10px", color: "#9ca3af" } },
       lineColor: "#e5e7eb", tickColor: "#e5e7eb",
     },
@@ -554,19 +555,19 @@ export default function AnalyticsSection({ reports1, videoData }) {
       Math.abs(curr.elapsedSec - this.x) < Math.abs(prev.elapsedSec - this.x) ? curr : prev
     );
     const elapsed = Math.round(this.x / 60);
-    let s = `<b>${closest.realTime}</b> (配信${elapsed}分)<br/>`;
+    let s = `<div style="padding:4px 2px;">`;
+    s += `<b style="font-size:13px">${closest.realTime}</b> <span style="color:#6b7280">(配信${elapsed}分)</span><br/>`;
     for (const p of this.points) {
       let val;
       if (p.series.name.includes("売上")) val = "¥" + Math.round(p.y).toLocaleString();
       else if (p.series.name.includes("視聴")) val = p.y.toLocaleString() + "人";
       else val = p.y.toLocaleString();
-      s += `<span style="color:${p.color}">\u25CF</span> ${p.series.name}: <b>${val}</b><br/>`;
+      s += `<span style="color:${p.color}">\u25CF</span> ${p.series.name}：<b>${val}</b><br/>`;
     }
     // Show active products at this time with sales data
     const currentSec = this.x;
     const activeProducts = exposures.filter(e => e.time_start <= currentSec && e.time_end >= currentSec);
     if (activeProducts.length > 0) {
-      // Deduplicate by product name
       const seen = new Set();
       const uniqueActive = [];
       for (const ap of activeProducts) {
@@ -581,26 +582,29 @@ export default function AnalyticsSection({ reports1, videoData }) {
         const pData = productDataLookup[ap.product_name];
         const gmvStr = pData?.gmv > 0 ? ` <span style="color:#f97316;font-weight:bold">¥${Math.round(pData.gmv).toLocaleString()}</span>` : "";
         const statsStr = pData ? ` <span style="color:#9ca3af">(${pData.count}回/${formatDurationMinutes(pData.totalDuration)})</span>` : "";
-        s += `<span style="color:${getColor(ci)}">\u25A0</span> <span style="font-size:11px">${ap.product_name}</span>${gmvStr}${statsStr}<br/>`;
+        s += `<span style="color:${getColor(ci)}">\u25CF</span> <span style="font-size:11px">${ap.product_name}</span>${gmvStr}${statsStr}<br/>`;
       }
     }
+    s += `</div>`;
     return s;
   };
 
   const trendChartOptions = trendChart ? {
-    chart: { height: 200, backgroundColor: "transparent", style: { fontFamily: "inherit" } },
+    chart: { height: 240, backgroundColor: "transparent", style: { fontFamily: "inherit" } },
     title: { text: null },
     credits: { enabled: false },
     legend: { align: "right", verticalAlign: "top", floating: true, itemStyle: { fontSize: "10px", color: "#6b7280" } },
     xAxis: {
       type: "linear",
+      crosshair: { width: 1, color: "#d1d5db", dashStyle: "Dash" },
+      tickInterval: 20 * 60,
       labels: {
         formatter: function () {
           const min = Math.round(this.value / 60);
           const closest = trendChart.data.reduce((prev, curr) =>
             Math.abs(curr.elapsedSec - this.value) < Math.abs(prev.elapsedSec - this.value) ? curr : prev
           );
-          return `${closest.realTime}\n(${min}分)`;
+          return `${closest.realTime} (${min}分)`;
         },
         style: { fontSize: "9px", color: "#9ca3af" },
       },
@@ -615,7 +619,7 @@ export default function AnalyticsSection({ reports1, videoData }) {
       useHTML: true,
       formatter: trendTooltipFormatter,
     },
-    plotOptions: { areaspline: { fillOpacity: 0.15, marker: { enabled: false, radius: 2 }, lineWidth: 2 } },
+    plotOptions: { areaspline: { fillOpacity: 0.15, marker: { enabled: false, radius: 2 }, lineWidth: 2, stickyTracking: true, trackByArea: true } },
     series: [
       ...(trendChart.hasGmv ? [{
         name: "売上（累積）", type: "areaspline", color: "#f97316",
@@ -668,14 +672,14 @@ export default function AnalyticsSection({ reports1, videoData }) {
 
                 {/* ── Integrated Product Color Bar ── */}
                 {exposures.length > 0 && videoDuration > 0 && (
-                  <div className="mt-2 px-1">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-500">
-                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="3" x2="9" y2="21" />
+                               <div className="mt-3 px-1">
+                    <p className="text-xs text-gray-500 mb-2 flex items-center gap-1">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-400">
+                        <rect x="3" y="4" width="18" height="18" rx="2" ry="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
                       </svg>
-                      <span className="text-[10px] text-gray-500 font-medium">商品露出タイムライン（{exposureStats.uniqueProducts.length}商品 / {exposures.length}セグメント）</span>
-                    </div>
-                    <div className="relative w-full h-7 bg-gray-100 rounded-lg overflow-hidden">
+                      商品露出タイムライン（{exposureStats.sorted.length}商品 / {exposures.length}セグメント）
+                    </p>
+                    <div className="relative w-full h-8 bg-gray-50 rounded-lg overflow-hidden border border-gray-100">
                       {exposures.map((exp, idx) => {
                         const left = (exp.time_start / videoDuration) * 100;
                         const width = ((exp.time_end - exp.time_start) / videoDuration) * 100;
@@ -764,69 +768,68 @@ export default function AnalyticsSection({ reports1, videoData }) {
                     <table className="w-full text-sm">
                       <thead>
                         <tr className="border-b border-gray-200">
-                          <th className="text-left text-[10px] text-gray-400 font-medium py-2 pr-2 w-8">#</th>
-                          <th className="text-left text-[10px] text-gray-400 font-medium py-2 pr-4">商品名</th>
-                          <th className="text-right text-[10px] text-gray-400 font-medium py-2 px-2">売上</th>
-                          <th className="text-right text-[10px] text-gray-400 font-medium py-2 px-2">注文</th>
-                          <th className="text-center text-[10px] text-gray-400 font-medium py-2 px-2">売上シェア</th>
-                          <th className="text-center text-[10px] text-gray-400 font-medium py-2 px-2">CVR</th>
-                          <th className="text-center text-[10px] text-gray-400 font-medium py-2 px-2">登場</th>
-                          <th className="text-left text-[10px] text-gray-400 font-medium py-2 px-2 hidden md:table-cell" style={{ minWidth: 100 }}>露出パターン</th>
+                          <th className="text-left text-xs text-gray-400 font-medium py-3 pr-2 w-10">#</th>
+                          <th className="text-left text-xs text-gray-400 font-medium py-3 pr-4">商品名</th>
+                          <th className="text-right text-xs text-gray-400 font-medium py-3 px-2">売上</th>
+                          <th className="text-right text-xs text-gray-400 font-medium py-3 px-2">注文</th>
+                          <th className="text-center text-xs text-gray-400 font-medium py-3 px-2">売上シェア</th>
+                          <th className="text-center text-xs text-gray-400 font-medium py-3 px-2">CVR</th>
+                          <th className="text-center text-xs text-gray-400 font-medium py-3 px-2">登場</th>
+                          <th className="text-left text-xs text-gray-400 font-medium py-3 px-2 hidden md:table-cell" style={{ minWidth: 80 }}>露出パターン</th>
                         </tr>
                       </thead>
                       <tbody>
                         {productRanking.map((p, i) => {
-                          const maxGmv = productRanking[0]?.gmv || 1;
-                          const rankBadge = i === 0 ? "bg-amber-400 text-white" : i === 1 ? "bg-gray-400 text-white" : i === 2 ? "bg-orange-400 text-white" : "bg-gray-200 text-gray-600";
+                          const rankBadge = i === 0 ? "bg-amber-400 text-white" : i === 1 ? "bg-gray-300 text-white" : i === 2 ? "bg-orange-300 text-white" : "bg-gray-100 text-gray-500";
 
                           return (
-                            <tr key={p.name} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
-                              <td className="py-3 pr-2">
-                                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold ${rankBadge}`}>{i + 1}</span>
+                            <tr key={p.name} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50 transition-colors">
+                              <td className="py-4 pr-2">
+                                <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${rankBadge}`}>{i + 1}</span>
                               </td>
-                              <td className="py-3 pr-4">
+                              <td className="py-4 pr-4">
                                 <div className="flex items-center gap-2">
                                   <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(p.colorIdx) }} />
-                                  <span className="text-sm font-medium text-gray-800 truncate max-w-[250px]" title={p.name}>{p.name}</span>
+                                  <span className="text-sm font-medium text-gray-800 truncate max-w-[300px]" title={p.name}>{p.name}</span>
                                 </div>
                               </td>
-                              <td className="text-right py-3 px-2">
+                              <td className="text-right py-4 px-2">
                                 <span className="text-sm font-bold text-gray-800">
                                   {p.gmv > 0 ? `¥${Math.round(p.gmv).toLocaleString()}` : "-"}
                                 </span>
                               </td>
-                              <td className="text-right py-3 px-2 text-gray-600">{p.orders > 0 ? `${p.orders}件` : "-"}</td>
-                              <td className="text-center py-3 px-2">
+                              <td className="text-right py-4 px-2 text-gray-600">{p.orders > 0 ? `${p.orders}件` : "-"}</td>
+                              <td className="text-center py-4 px-2">
                                 {p.sharePercent > 0 ? (
                                   <div className="flex items-center justify-center gap-1.5">
-                                    <div className="w-12 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                    <div className="w-16 h-2 bg-gray-100 rounded-full overflow-hidden">
                                       <div className="h-full rounded-full" style={{ width: `${Math.min(p.sharePercent, 100)}%`, backgroundColor: getColor(p.colorIdx) }} />
                                     </div>
                                     <span className="text-xs text-gray-500">{p.sharePercent.toFixed(1)}%</span>
                                   </div>
                                 ) : <span className="text-xs text-gray-400">-</span>}
                               </td>
-                              <td className="text-center py-3 px-2">
-                                <span className={`text-xs font-medium ${p.cvr >= 1.0 ? "text-green-600" : "text-gray-500"}`}>
+                              <td className="text-center py-4 px-2">
+                                <span className={`text-xs font-semibold ${p.cvr >= 1.0 ? "text-green-600" : "text-gray-500"}`}>
                                   {p.cvr > 0 ? `${p.cvr.toFixed(1)}%` : "-"}
                                 </span>
                               </td>
-                              <td className="text-center py-3 px-2">
-                                <div className="text-xs">
-                                  <span className="font-semibold text-gray-700">{p.count}回</span>
+                              <td className="text-center py-4 px-2">
+                                <div>
+                                  <div className="text-sm font-bold text-gray-700">{p.count}回</div>
                                   <div className="text-[10px] text-gray-400">合計 {formatDurationMinutes(p.totalDuration)}</div>
                                 </div>
                               </td>
-                              <td className="py-3 px-2 hidden md:table-cell">
+                              <td className="py-4 px-2 hidden md:table-cell">
                                 {/* Mini exposure pattern bar */}
                                 {videoDuration > 0 && (
-                                  <div className="relative h-3 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: 100 }}>
+                                  <div className="relative h-3 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: 80 }}>
                                     {p.segments.map((seg, si) => {
                                       const left = (seg.time_start / videoDuration) * 100;
                                       const width = ((seg.time_end - seg.time_start) / videoDuration) * 100;
                                       return (
                                         <div key={si} className="absolute top-0 h-full rounded-sm"
-                                          style={{ left: `${left}%`, width: `${Math.max(1, width)}%`, backgroundColor: getColor(p.colorIdx) }}
+                                          style={{ left: `${left}%`, width: `${Math.max(1.5, width)}%`, backgroundColor: getColor(p.colorIdx) }}
                                           title={`${formatTime(seg.time_start)} - ${formatTime(seg.time_end)}`}
                                         />
                                       );
