@@ -605,7 +605,11 @@ export default function VideoDetail({ videoData }) {
           <ClipSection videoData={videoData} clipStates={clipStates} reports1={videoData?.reports_1} />
 
           {/* Analytics Section - above report */}
-          <AnalyticsSection reports1={videoData?.reports_1} videoData={videoData} />
+          <AnalyticsSection reports1={videoData?.reports_1} videoData={videoData}
+            onPreviewSegment={(timeStart, timeEnd) => {
+              handlePhasePreview({ time_start: timeStart, time_end: timeEnd });
+            }}
+          />
 
           {/* Product Timeline is now integrated into AnalyticsSection above */}
 

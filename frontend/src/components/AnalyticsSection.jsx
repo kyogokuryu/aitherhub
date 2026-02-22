@@ -187,7 +187,7 @@ function addSecondsToTime(baseTime, seconds) {
 }
 
 // ─── Main Component ───────────────────────────────────────
-export default function AnalyticsSection({ reports1, videoData }) {
+export default function AnalyticsSection({ reports1, videoData, onPreviewSegment }) {
   const [collapsed, setCollapsed] = useState(false);
   const [excelData, setExcelData] = useState(null);
   const [loadingExcel, setLoadingExcel] = useState(false);
@@ -201,6 +201,9 @@ export default function AnalyticsSection({ reports1, videoData }) {
   const [showAddForm, setShowAddForm] = useState(false);
   const [ganttExpanded, setGanttExpanded] = useState(false);
   const [exposureListExpanded, setExposureListExpanded] = useState(false);
+
+  // Selected product for filtering
+  const [selectedProduct, setSelectedProduct] = useState(null);
 
   // ── Fetch Excel product/trend data ────────────────────────────
   useEffect(() => {
@@ -509,6 +512,28 @@ export default function AnalyticsSection({ reports1, videoData }) {
     return lookup;
   }, [productRanking]);
 
+  // ── Filtered exposures based on selected product ──────────────
+  const filteredExposures = useMemo(() => {
+    if (!selectedProduct) return exposures;
+    return exposures.filter(e => e.product_name === selectedProduct);
+  }, [exposures, selectedProduct]);
+
+  // ── Handle product click in ranking table ──────────────────────
+  const handleProductClick = (productName) => {
+    if (selectedProduct === productName) {
+      setSelectedProduct(null); // Toggle off
+    } else {
+      setSelectedProduct(productName);
+    }
+  };
+
+  // ── Handle segment click to preview video ─────────────────────
+  const handleSegmentClick = (timeStart, timeEnd) => {
+    if (onPreviewSegment) {
+      onPreviewSegment(timeStart, timeEnd);
+    }
+  };
+
   // ── Don't render if no data ────────────────────────────────────
   if (!agg) return null;
 
@@ -689,16 +714,18 @@ export default function AnalyticsSection({ reports1, videoData }) {
                         const left = (exp.time_start / videoDuration) * 100;
                         const width = ((exp.time_end - exp.time_start) / videoDuration) * 100;
                         const ci = exposureStats.colorMap[exp.product_name] ?? 0;
+                        const isFiltered = selectedProduct && exp.product_name !== selectedProduct;
                         return (
                           <div key={exp.id || idx}
-                            className="absolute top-0 h-full rounded-sm cursor-pointer transition-opacity hover:opacity-90"
+                            className="absolute top-0 h-full rounded-sm cursor-pointer transition-all duration-200 hover:opacity-90"
+                            onClick={() => handleSegmentClick(exp.time_start, exp.time_end)}
                             style={{
                               left: `${Math.max(0, left)}%`,
                               width: `${Math.max(0.3, width)}%`,
                               backgroundColor: getColor(ci),
-                              opacity: Math.max(0.5, exp.confidence || 0.8),
+                              opacity: isFiltered ? 0.15 : Math.max(0.5, exp.confidence || 0.8),
                             }}
-                            title={`${exp.product_name} (${formatTime(exp.time_start)} - ${formatTime(exp.time_end)})`}
+                            title={`${exp.product_name} (${formatTime(exp.time_start)} - ${formatTime(exp.time_end)}) ▶ クリックで再生`}
                           />
                         );
                       })}
@@ -706,16 +733,22 @@ export default function AnalyticsSection({ reports1, videoData }) {
 
                     {/* ── Product Legend with sales data ── */}
                     <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3">
-                      {productRanking.map((p) => (
-                        <div key={p.name} className="flex items-center gap-1.5 text-xs">
-                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(p.colorIdx) }} />
-                          <span className="text-gray-700 font-medium">{p.name}</span>
-                          {p.gmv > 0 && (
-                            <span className="text-orange-500 font-bold">¥{Math.round(p.gmv).toLocaleString()}</span>
-                          )}
-                          <span className="text-gray-400">{p.count}回 {formatDurationMinutes(p.totalDuration)}</span>
-                        </div>
-                      ))}
+                      {productRanking.map((p) => {
+                        const isLegendSelected = selectedProduct === p.name;
+                        const isLegendDimmed = selectedProduct && selectedProduct !== p.name;
+                        return (
+                          <div key={p.name}
+                            onClick={() => handleProductClick(p.name)}
+                            className={`flex items-center gap-1.5 text-xs cursor-pointer rounded-md px-1.5 py-0.5 transition-all duration-200 ${isLegendSelected ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-gray-100'} ${isLegendDimmed ? 'opacity-30' : ''}`}>
+                            <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(p.colorIdx) }} />
+                            <span className="text-gray-700 font-medium">{p.name}</span>
+                            {p.gmv > 0 && (
+                              <span className="text-orange-500 font-bold">¥{Math.round(p.gmv).toLocaleString()}</span>
+                            )}
+                            <span className="text-gray-400">{p.count}回 {formatDurationMinutes(p.totalDuration)}</span>
+                          </div>
+                        );
+                      })}
                     </div>
                   </div>
                 )}
@@ -786,9 +819,12 @@ export default function AnalyticsSection({ reports1, videoData }) {
                       <tbody>
                         {productRanking.map((p, i) => {
                           const rankBadge = i < 3 ? "bg-gradient-to-br from-amber-400 to-orange-400 text-white shadow-sm" : "bg-gray-100 text-gray-500";
+                          const isSelected = selectedProduct === p.name;
 
                           return (
-                            <tr key={p.name} className="border-b border-gray-100 last:border-0 hover:bg-gray-50/50 transition-colors">
+                            <tr key={p.name}
+                              onClick={() => handleProductClick(p.name)}
+                              className={`border-b border-gray-100 last:border-0 cursor-pointer transition-all duration-200 ${isSelected ? 'bg-blue-50 ring-1 ring-blue-200' : 'hover:bg-gray-50/50'}`}>
                               <td className="py-5 pr-2">
                                 <span className={`inline-flex items-center justify-center w-7 h-7 rounded-full text-xs font-bold ${rankBadge}`}>{i + 1}</span>
                               </td>
@@ -833,9 +869,10 @@ export default function AnalyticsSection({ reports1, videoData }) {
                                       const left = (seg.time_start / videoDuration) * 100;
                                       const width = ((seg.time_end - seg.time_start) / videoDuration) * 100;
                                       return (
-                                        <div key={si} className="absolute top-0 h-full rounded-sm"
+                                        <div key={si} className="absolute top-0 h-full rounded-sm cursor-pointer hover:ring-1 hover:ring-blue-300"
+                                          onClick={(e) => { e.stopPropagation(); handleSegmentClick(seg.time_start, seg.time_end); }}
                                           style={{ left: `${left}%`, width: `${Math.max(1.5, width)}%`, backgroundColor: getColor(p.colorIdx) }}
-                                          title={`${formatTime(seg.time_start)} - ${formatTime(seg.time_end)}`}
+                                          title={`${formatTime(seg.time_start)} - ${formatTime(seg.time_end)} ▶ クリックで再生`}
                                         />
                                       );
                                     })}
@@ -847,6 +884,52 @@ export default function AnalyticsSection({ reports1, videoData }) {
                         })}
                       </tbody>
                     </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* ── Filtered Segments Panel (when product is selected) ── */}
+            {selectedProduct && filteredExposures.length > 0 && (
+              <div className="rounded-xl bg-white border-2 border-blue-200 shadow-sm overflow-hidden">
+                <div className="bg-blue-50 px-4 py-3 flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getColor(exposureStats.colorMap[selectedProduct] ?? 0) }} />
+                    <span className="text-sm font-semibold text-blue-800">{selectedProduct}</span>
+                    <span className="text-xs text-blue-500">({filteredExposures.length}セグメント)</span>
+                  </div>
+                  <button onClick={() => setSelectedProduct(null)}
+                    className="text-xs text-blue-500 hover:text-blue-700 bg-white px-2 py-1 rounded-md border border-blue-200 hover:bg-blue-50 transition-colors">
+                    ✕ フィルタ解除
+                  </button>
+                </div>
+                <div className="p-4">
+                  <div className="text-xs text-gray-500 mb-2">タップして動画を再生 ▶</div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 max-h-64 overflow-y-auto">
+                    {filteredExposures.map((seg, idx) => {
+                      const duration = (seg.time_end || 0) - (seg.time_start || 0);
+                      const realStart = streamStartTime ? addSecondsToTime(streamStartTime, seg.time_start) : null;
+                      const realEnd = streamStartTime ? addSecondsToTime(streamStartTime, seg.time_end) : null;
+                      return (
+                        <div key={seg.id || idx}
+                          onClick={() => handleSegmentClick(seg.time_start, seg.time_end)}
+                          className="flex items-center gap-3 p-3 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50 cursor-pointer transition-all duration-150 group">
+                          <div className="flex items-center justify-center w-8 h-8 rounded-full bg-blue-100 text-blue-600 group-hover:bg-blue-200 transition-colors">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                              <polygon points="5 3 19 12 5 21 5 3" />
+                            </svg>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-gray-700">
+                              {realStart || formatTime(seg.time_start)} - {realEnd || formatTime(seg.time_end)}
+                            </div>
+                            <div className="text-xs text-gray-400">
+                              {formatDurationMinutes(duration)} ({formatTime(seg.time_start)} - {formatTime(seg.time_end)})
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
@@ -948,9 +1031,10 @@ export default function AnalyticsSection({ reports1, videoData }) {
                                 const left = (seg.time_start / videoDuration) * 100;
                                 const width = ((seg.time_end - seg.time_start) / videoDuration) * 100;
                                 return (
-                                  <div key={si} className="absolute top-0.5 h-4 rounded-sm cursor-pointer hover:opacity-80"
+                                  <div key={si} className="absolute top-0.5 h-4 rounded-sm cursor-pointer hover:opacity-80 hover:ring-2 hover:ring-blue-300"
+                                    onClick={() => handleSegmentClick(seg.time_start, seg.time_end)}
                                     style={{ left: `${left}%`, width: `${Math.max(0.5, width)}%`, backgroundColor: getColor(product.colorIdx) }}
-                                    title={`${formatTime(seg.time_start)} - ${formatTime(seg.time_end)}${streamStartTime ? ` (${addSecondsToTime(streamStartTime, seg.time_start)} - ${addSecondsToTime(streamStartTime, seg.time_end)})` : ""}`}
+                                    title={`${formatTime(seg.time_start)} - ${formatTime(seg.time_end)}${streamStartTime ? ` (${addSecondsToTime(streamStartTime, seg.time_start)} - ${addSecondsToTime(streamStartTime, seg.time_end)})` : ""} ▶ クリックで再生`}
                                   />
                                 );
                               })}
