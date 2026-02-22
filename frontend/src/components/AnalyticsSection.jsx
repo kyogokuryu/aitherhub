@@ -4,10 +4,12 @@ import HighchartsReact from "highcharts-react-official";
 import VideoService from "../base/services/videoService";
 
 /**
- * AnalyticsSection – Unified analytics dashboard
+ * AnalyticsSection – Unified analytics dashboard (v3 Mockup-matching)
  * - KPI cards & sub-metrics
  * - Time-series chart (sales + viewers) with integrated product exposure color bar
- * - Product ranking table with appearance count, total exposure time, exposure pattern
+ * - Tooltip shows active products with sales data
+ * - Product legend with sales amount, appearance count, exposure time
+ * - Product ranking table with sales share, CVR, exposure pattern
  * - Expandable Gantt-chart detail per product
  * - Inline edit / add / delete for product exposures
  *
@@ -51,6 +53,12 @@ function formatTime(seconds) {
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins}:${secs.toString().padStart(2, "0")}`;
+}
+
+function formatDurationMinutes(seconds) {
+  if (seconds == null || isNaN(seconds)) return "0分";
+  const mins = Math.round(seconds / 60);
+  return `${mins}分`;
 }
 
 function parseTimeInput(value) {
@@ -401,112 +409,6 @@ export default function AnalyticsSection({ reports1, videoData }) {
     return `配信${m}分頃`;
   };
 
-  // ── Don't render if no data ────────────────────────────────────
-  if (!agg) return null;
-
-  // ── Highcharts options (phase-based fallback) ─────────────────
-  const chartOptions = {
-    chart: { height: 180, backgroundColor: "transparent", style: { fontFamily: "inherit" } },
-    title: { text: null },
-    credits: { enabled: false },
-    legend: { align: "right", verticalAlign: "top", floating: true, itemStyle: { fontSize: "10px", color: "#6b7280" } },
-    xAxis: {
-      type: "linear",
-      labels: { formatter: function () { return fmtTime(this.value); }, style: { fontSize: "10px", color: "#9ca3af" } },
-      lineColor: "#e5e7eb", tickColor: "#e5e7eb",
-    },
-    yAxis: [
-      { title: { text: null }, labels: { formatter: function () { return "¥" + (this.value >= 1000 ? Math.round(this.value / 1000) + "k" : this.value); }, style: { fontSize: "10px", color: "#f97316" } }, gridLineColor: "#f3f4f6" },
-      { title: { text: null }, opposite: true, labels: { style: { fontSize: "10px", color: "#3b82f6" } }, gridLineWidth: 0 },
-    ],
-    tooltip: {
-      shared: true,
-      formatter: function () {
-        const time = fmtTime(this.x);
-        const elapsed = fmtElapsed(this.x);
-        let s = `<b>${time}</b> (${elapsed})<br/>`;
-        for (const p of this.points) {
-          const val = p.series.name === "売上（累積）" ? "¥" + Math.round(p.y).toLocaleString() : p.y.toLocaleString() + "人";
-          s += `<span style="color:${p.color}">\u25CF</span> ${p.series.name}: <b>${val}</b><br/>`;
-        }
-        return s;
-      },
-    },
-    plotOptions: { areaspline: { fillOpacity: 0.15, marker: { enabled: false, radius: 2 }, lineWidth: 2 } },
-    series: [
-      { name: "売上（累積）", type: "areaspline", color: "#f97316", data: agg.cumulativeGmv.map((p) => [p.x, p.y]), yAxis: 0 },
-      { name: "視聴者数", type: "areaspline", color: "#3b82f6", data: agg.timeSeriesViewers.map((p) => [p.x, p.y]), yAxis: 1 },
-    ],
-  };
-
-  // ── Trend chart options (from Excel with real timestamps) ─────
-  const trendChartOptions = trendChart ? {
-    chart: { height: 200, backgroundColor: "transparent", style: { fontFamily: "inherit" } },
-    title: { text: null },
-    credits: { enabled: false },
-    legend: { align: "right", verticalAlign: "top", floating: true, itemStyle: { fontSize: "10px", color: "#6b7280" } },
-    xAxis: {
-      type: "linear",
-      labels: {
-        formatter: function () {
-          const min = Math.round(this.value / 60);
-          const closest = trendChart.data.reduce((prev, curr) =>
-            Math.abs(curr.elapsedSec - this.value) < Math.abs(prev.elapsedSec - this.value) ? curr : prev
-          );
-          return `${closest.realTime}\n(${min}分)`;
-        },
-        style: { fontSize: "9px", color: "#9ca3af" },
-      },
-      lineColor: "#e5e7eb", tickColor: "#e5e7eb",
-    },
-    yAxis: [
-      ...(trendChart.hasGmv ? [{ title: { text: null }, labels: { formatter: function () { return "¥" + (this.value >= 1000 ? Math.round(this.value / 1000) + "k" : this.value); }, style: { fontSize: "10px", color: "#f97316" } }, gridLineColor: "#f3f4f6" }] : []),
-      ...(trendChart.hasViewers ? [{ title: { text: null }, opposite: true, labels: { style: { fontSize: "10px", color: "#3b82f6" } }, gridLineWidth: 0 }] : []),
-    ],
-    tooltip: {
-      shared: true,
-      useHTML: true,
-      formatter: function () {
-        const closest = trendChart.data.reduce((prev, curr) =>
-          Math.abs(curr.elapsedSec - this.x) < Math.abs(prev.elapsedSec - this.x) ? curr : prev
-        );
-        const elapsed = Math.round(this.x / 60);
-        let s = `<b>${closest.realTime}</b> (配信${elapsed}分頃)<br/>`;
-        for (const p of this.points) {
-          let val;
-          if (p.series.name.includes("売上")) val = "¥" + Math.round(p.y).toLocaleString();
-          else if (p.series.name.includes("視聴")) val = p.y.toLocaleString() + "人";
-          else val = p.y.toLocaleString();
-          s += `<span style="color:${p.color}">\u25CF</span> ${p.series.name}: <b>${val}</b><br/>`;
-        }
-        // Show active products at this time
-        const currentSec = this.x;
-        const activeProducts = exposures.filter(e => e.time_start <= currentSec && e.time_end >= currentSec);
-        if (activeProducts.length > 0) {
-          s += `<br/><span style="font-size:10px;color:#6b7280">露出中の商品:</span><br/>`;
-          for (const ap of activeProducts) {
-            const ci = exposureStats.colorMap[ap.product_name] ?? 0;
-            s += `<span style="color:${getColor(ci)}">\u25A0</span> <span style="font-size:11px">${ap.product_name}</span><br/>`;
-          }
-        }
-        return s;
-      },
-    },
-    plotOptions: { areaspline: { fillOpacity: 0.15, marker: { enabled: false, radius: 2 }, lineWidth: 2 } },
-    series: [
-      ...(trendChart.hasGmv ? [{
-        name: "売上（累積）", type: "areaspline", color: "#f97316",
-        data: (() => { let cum = 0; return trendChart.data.filter(d => d.gmv != null).map(d => { cum += d.gmv; return [d.elapsedSec, cum]; }); })(),
-        yAxis: 0,
-      }] : []),
-      ...(trendChart.hasViewers ? [{
-        name: "視聴者数", type: "areaspline", color: "#3b82f6",
-        data: trendChart.data.filter(d => d.viewers != null).map(d => [d.elapsedSec, d.viewers]),
-        yAxis: trendChart.hasGmv ? 1 : 0,
-      }] : []),
-    ],
-  } : null;
-
   // ── Process Excel product data ────────────────────────────────
   const excelProducts = useMemo(() => {
     if (!excelData?.has_product_data || !excelData.products || excelData.products.length === 0) return null;
@@ -558,7 +460,10 @@ export default function AnalyticsSection({ reports1, videoData }) {
       }
     }
 
-    return exposureStats.sorted.map((stat) => {
+    // Total GMV for share calculation
+    let totalProductGmv = 0;
+
+    const ranked = exposureStats.sorted.map((stat) => {
       // Try to match with Excel data (fuzzy: contains match)
       let salesData = excelLookup[stat.name] || null;
       if (!salesData) {
@@ -574,14 +479,156 @@ export default function AnalyticsSection({ reports1, videoData }) {
       // Fallback to phase data
       const phaseData = phaseLookup[stat.name] || null;
 
+      const gmv = salesData?.gmv || phaseData?.gmv || 0;
+      const orders = salesData?.quantity || phaseData?.orders || 0;
+      const clicks = phaseData?.clicks || salesData?.clicks || 0;
+      totalProductGmv += gmv;
+
       return {
         ...stat,
-        gmv: salesData?.gmv || phaseData?.gmv || 0,
-        orders: salesData?.quantity || phaseData?.orders || 0,
-        clicks: phaseData?.clicks || salesData?.clicks || 0,
+        gmv,
+        orders,
+        clicks,
       };
-    }).sort((a, b) => b.gmv - a.gmv || b.totalDuration - a.totalDuration);
+    });
+
+    // Add share percentage and CVR
+    return ranked.map(p => ({
+      ...p,
+      sharePercent: totalProductGmv > 0 ? ((p.gmv / totalProductGmv) * 100) : 0,
+      cvr: p.clicks > 0 ? ((p.orders / p.clicks) * 100) : (p.orders > 0 && agg?.totalClicks > 0 ? ((p.orders / agg.totalClicks) * 100) : 0),
+    })).sort((a, b) => b.gmv - a.gmv || b.totalDuration - a.totalDuration);
   }, [exposureStats, excelProducts, agg]);
+
+  // ── Build a lookup for quick product data access in tooltips ───
+  const productDataLookup = useMemo(() => {
+    const lookup = {};
+    for (const p of productRanking) {
+      lookup[p.name] = p;
+    }
+    return lookup;
+  }, [productRanking]);
+
+  // ── Don't render if no data ────────────────────────────────────
+  if (!agg) return null;
+
+  // ── Highcharts options (phase-based fallback) ─────────────────
+  const chartOptions = {
+    chart: { height: 180, backgroundColor: "transparent", style: { fontFamily: "inherit" } },
+    title: { text: null },
+    credits: { enabled: false },
+    legend: { align: "right", verticalAlign: "top", floating: true, itemStyle: { fontSize: "10px", color: "#6b7280" } },
+    xAxis: {
+      type: "linear",
+      labels: { formatter: function () { return fmtTime(this.value); }, style: { fontSize: "10px", color: "#9ca3af" } },
+      lineColor: "#e5e7eb", tickColor: "#e5e7eb",
+    },
+    yAxis: [
+      { title: { text: null }, labels: { formatter: function () { return "¥" + (this.value >= 1000 ? Math.round(this.value / 1000) + "k" : this.value); }, style: { fontSize: "10px", color: "#f97316" } }, gridLineColor: "#f3f4f6" },
+      { title: { text: null }, opposite: true, labels: { style: { fontSize: "10px", color: "#3b82f6" } }, gridLineWidth: 0 },
+    ],
+    tooltip: {
+      shared: true,
+      formatter: function () {
+        const time = fmtTime(this.x);
+        const elapsed = fmtElapsed(this.x);
+        let s = `<b>${time}</b> (${elapsed})<br/>`;
+        for (const p of this.points) {
+          const val = p.series.name === "売上（累積）" ? "¥" + Math.round(p.y).toLocaleString() : p.y.toLocaleString() + "人";
+          s += `<span style="color:${p.color}">\u25CF</span> ${p.series.name}: <b>${val}</b><br/>`;
+        }
+        return s;
+      },
+    },
+    plotOptions: { areaspline: { fillOpacity: 0.15, marker: { enabled: false, radius: 2 }, lineWidth: 2 } },
+    series: [
+      { name: "売上（累積）", type: "areaspline", color: "#f97316", data: agg.cumulativeGmv.map((p) => [p.x, p.y]), yAxis: 0 },
+      { name: "視聴者数", type: "areaspline", color: "#3b82f6", data: agg.timeSeriesViewers.map((p) => [p.x, p.y]), yAxis: 1 },
+    ],
+  };
+
+  // ── Trend chart options (from Excel with real timestamps) ─────
+  // Build tooltip formatter that includes active product info with sales data
+  const trendTooltipFormatter = function () {
+    const closest = trendChart.data.reduce((prev, curr) =>
+      Math.abs(curr.elapsedSec - this.x) < Math.abs(prev.elapsedSec - this.x) ? curr : prev
+    );
+    const elapsed = Math.round(this.x / 60);
+    let s = `<b>${closest.realTime}</b> (配信${elapsed}分)<br/>`;
+    for (const p of this.points) {
+      let val;
+      if (p.series.name.includes("売上")) val = "¥" + Math.round(p.y).toLocaleString();
+      else if (p.series.name.includes("視聴")) val = p.y.toLocaleString() + "人";
+      else val = p.y.toLocaleString();
+      s += `<span style="color:${p.color}">\u25CF</span> ${p.series.name}: <b>${val}</b><br/>`;
+    }
+    // Show active products at this time with sales data
+    const currentSec = this.x;
+    const activeProducts = exposures.filter(e => e.time_start <= currentSec && e.time_end >= currentSec);
+    if (activeProducts.length > 0) {
+      // Deduplicate by product name
+      const seen = new Set();
+      const uniqueActive = [];
+      for (const ap of activeProducts) {
+        if (!seen.has(ap.product_name)) {
+          seen.add(ap.product_name);
+          uniqueActive.push(ap);
+        }
+      }
+      s += `<br/><span style="font-size:10px;color:#6b7280">\uD83D\uDCE6 表示中:</span><br/>`;
+      for (const ap of uniqueActive) {
+        const ci = exposureStats.colorMap[ap.product_name] ?? 0;
+        const pData = productDataLookup[ap.product_name];
+        const gmvStr = pData?.gmv > 0 ? ` <span style="color:#f97316;font-weight:bold">¥${Math.round(pData.gmv).toLocaleString()}</span>` : "";
+        const statsStr = pData ? ` <span style="color:#9ca3af">(${pData.count}回/${formatDurationMinutes(pData.totalDuration)})</span>` : "";
+        s += `<span style="color:${getColor(ci)}">\u25A0</span> <span style="font-size:11px">${ap.product_name}</span>${gmvStr}${statsStr}<br/>`;
+      }
+    }
+    return s;
+  };
+
+  const trendChartOptions = trendChart ? {
+    chart: { height: 200, backgroundColor: "transparent", style: { fontFamily: "inherit" } },
+    title: { text: null },
+    credits: { enabled: false },
+    legend: { align: "right", verticalAlign: "top", floating: true, itemStyle: { fontSize: "10px", color: "#6b7280" } },
+    xAxis: {
+      type: "linear",
+      labels: {
+        formatter: function () {
+          const min = Math.round(this.value / 60);
+          const closest = trendChart.data.reduce((prev, curr) =>
+            Math.abs(curr.elapsedSec - this.value) < Math.abs(prev.elapsedSec - this.value) ? curr : prev
+          );
+          return `${closest.realTime}\n(${min}分)`;
+        },
+        style: { fontSize: "9px", color: "#9ca3af" },
+      },
+      lineColor: "#e5e7eb", tickColor: "#e5e7eb",
+    },
+    yAxis: [
+      ...(trendChart.hasGmv ? [{ title: { text: null }, labels: { formatter: function () { return "¥" + (this.value >= 1000 ? Math.round(this.value / 1000) + "k" : this.value); }, style: { fontSize: "10px", color: "#f97316" } }, gridLineColor: "#f3f4f6" }] : []),
+      ...(trendChart.hasViewers ? [{ title: { text: null }, opposite: true, labels: { style: { fontSize: "10px", color: "#3b82f6" } }, gridLineWidth: 0 }] : []),
+    ],
+    tooltip: {
+      shared: true,
+      useHTML: true,
+      formatter: trendTooltipFormatter,
+    },
+    plotOptions: { areaspline: { fillOpacity: 0.15, marker: { enabled: false, radius: 2 }, lineWidth: 2 } },
+    series: [
+      ...(trendChart.hasGmv ? [{
+        name: "売上（累積）", type: "areaspline", color: "#f97316",
+        data: (() => { let cum = 0; return trendChart.data.filter(d => d.gmv != null).map(d => { cum += d.gmv; return [d.elapsedSec, cum]; }); })(),
+        yAxis: 0,
+      }] : []),
+      ...(trendChart.hasViewers ? [{
+        name: "視聴者数", type: "areaspline", color: "#3b82f6",
+        data: trendChart.data.filter(d => d.viewers != null).map(d => [d.elapsedSec, d.viewers]),
+        yAxis: trendChart.hasGmv ? 1 : 0,
+      }] : []),
+    ],
+  } : null;
 
   // ── Render ─────────────────────────────────────────────────────
   return (
@@ -597,9 +644,9 @@ export default function AnalyticsSection({ reports1, videoData }) {
               <path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-3 3" />
             </svg>
             <div>
-              <div className="text-gray-900 text-xl font-semibold">アナリティクス</div>
+              <div className="text-gray-900 text-xl font-semibold">配信パフォーマンス</div>
               <div className="text-gray-500 text-sm mt-1">
-                配信時間 {agg.durationMin}分 ・ {agg.totalOrders}件の注文
+                売上・視聴者推移 + 商品露出タイムライン + 商品別売上
               </div>
             </div>
           </div>
@@ -613,6 +660,190 @@ export default function AnalyticsSection({ reports1, videoData }) {
 
         {!collapsed && (
           <div className="px-5 pb-5 space-y-4">
+
+            {/* ── Trend Chart (from Excel with real timestamps) ── */}
+            {trendChartOptions && (
+              <div className="rounded-xl bg-white border border-gray-200 p-4 shadow-sm">
+                <HighchartsReact highcharts={Highcharts} options={trendChartOptions} />
+
+                {/* ── Integrated Product Color Bar ── */}
+                {exposures.length > 0 && videoDuration > 0 && (
+                  <div className="mt-2 px-1">
+                    <div className="flex items-center gap-2 mb-1.5">
+                      <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-gray-500">
+                        <rect x="3" y="3" width="18" height="18" rx="2" ry="2" /><line x1="3" y1="9" x2="21" y2="9" /><line x1="9" y1="3" x2="9" y2="21" />
+                      </svg>
+                      <span className="text-[10px] text-gray-500 font-medium">商品露出タイムライン（{exposureStats.uniqueProducts.length}商品 / {exposures.length}セグメント）</span>
+                    </div>
+                    <div className="relative w-full h-7 bg-gray-100 rounded-lg overflow-hidden">
+                      {exposures.map((exp, idx) => {
+                        const left = (exp.time_start / videoDuration) * 100;
+                        const width = ((exp.time_end - exp.time_start) / videoDuration) * 100;
+                        const ci = exposureStats.colorMap[exp.product_name] ?? 0;
+                        return (
+                          <div key={exp.id || idx}
+                            className="absolute top-0 h-full rounded-sm cursor-pointer transition-opacity hover:opacity-90"
+                            style={{
+                              left: `${Math.max(0, left)}%`,
+                              width: `${Math.max(0.3, width)}%`,
+                              backgroundColor: getColor(ci),
+                              opacity: Math.max(0.5, exp.confidence || 0.8),
+                            }}
+                            title={`${exp.product_name} (${formatTime(exp.time_start)} - ${formatTime(exp.time_end)})`}
+                          />
+                        );
+                      })}
+                    </div>
+
+                    {/* ── Product Legend with sales data ── */}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3">
+                      {productRanking.map((p) => (
+                        <div key={p.name} className="flex items-center gap-1.5 text-xs">
+                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(p.colorIdx) }} />
+                          <span className="text-gray-700 font-medium">{p.name}</span>
+                          {p.gmv > 0 && (
+                            <span className="text-orange-500 font-bold">¥{Math.round(p.gmv).toLocaleString()}</span>
+                          )}
+                          <span className="text-gray-400">{p.count}回 {formatDurationMinutes(p.totalDuration)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Phase-based Chart (fallback if no trend data) ── */}
+            {!trendChartOptions && agg.cumulativeGmv.length > 1 && (
+              <div className="rounded-xl bg-white border border-gray-200 p-4 shadow-sm">
+                <HighchartsReact highcharts={Highcharts} options={chartOptions} />
+                {/* Color bar for fallback chart too */}
+                {exposures.length > 0 && videoDuration > 0 && (
+                  <div className="mt-2 px-1">
+                    <div className="relative w-full h-7 bg-gray-100 rounded-lg overflow-hidden">
+                      {exposures.map((exp, idx) => {
+                        const left = (exp.time_start / videoDuration) * 100;
+                        const width = ((exp.time_end - exp.time_start) / videoDuration) * 100;
+                        const ci = exposureStats.colorMap[exp.product_name] ?? 0;
+                        return (
+                          <div key={exp.id || idx}
+                            className="absolute top-0 h-full rounded-sm"
+                            style={{ left: `${Math.max(0, left)}%`, width: `${Math.max(0.3, width)}%`, backgroundColor: getColor(ci), opacity: 0.7 }}
+                          />
+                        );
+                      })}
+                    </div>
+                    {/* Product Legend */}
+                    <div className="flex flex-wrap gap-x-4 gap-y-1.5 mt-3">
+                      {productRanking.map((p) => (
+                        <div key={p.name} className="flex items-center gap-1.5 text-xs">
+                          <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(p.colorIdx) }} />
+                          <span className="text-gray-700 font-medium">{p.name}</span>
+                          {p.gmv > 0 && <span className="text-orange-500 font-bold">¥{Math.round(p.gmv).toLocaleString()}</span>}
+                          <span className="text-gray-400">{p.count}回 {formatDurationMinutes(p.totalDuration)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ── Product Ranking Table (Mockup-matching design) ── */}
+            {productRanking.length > 0 && (
+              <div className="rounded-xl bg-white border border-gray-200 shadow-sm">
+                <div className="p-4">
+                  <div className="flex items-center gap-2 mb-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-500">
+                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
+                    </svg>
+                    <span className="text-sm font-semibold text-gray-700">商品別売上ランキング</span>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-gray-200">
+                          <th className="text-left text-[10px] text-gray-400 font-medium py-2 pr-2 w-8">#</th>
+                          <th className="text-left text-[10px] text-gray-400 font-medium py-2 pr-4">商品名</th>
+                          <th className="text-right text-[10px] text-gray-400 font-medium py-2 px-2">売上</th>
+                          <th className="text-right text-[10px] text-gray-400 font-medium py-2 px-2">注文</th>
+                          <th className="text-center text-[10px] text-gray-400 font-medium py-2 px-2">売上シェア</th>
+                          <th className="text-center text-[10px] text-gray-400 font-medium py-2 px-2">CVR</th>
+                          <th className="text-center text-[10px] text-gray-400 font-medium py-2 px-2">登場</th>
+                          <th className="text-left text-[10px] text-gray-400 font-medium py-2 px-2 hidden md:table-cell" style={{ minWidth: 100 }}>露出パターン</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {productRanking.map((p, i) => {
+                          const maxGmv = productRanking[0]?.gmv || 1;
+                          const rankBadge = i === 0 ? "bg-amber-400 text-white" : i === 1 ? "bg-gray-400 text-white" : i === 2 ? "bg-orange-400 text-white" : "bg-gray-200 text-gray-600";
+
+                          return (
+                            <tr key={p.name} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
+                              <td className="py-3 pr-2">
+                                <span className={`inline-flex items-center justify-center w-6 h-6 rounded-full text-[10px] font-bold ${rankBadge}`}>{i + 1}</span>
+                              </td>
+                              <td className="py-3 pr-4">
+                                <div className="flex items-center gap-2">
+                                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(p.colorIdx) }} />
+                                  <span className="text-sm font-medium text-gray-800 truncate max-w-[250px]" title={p.name}>{p.name}</span>
+                                </div>
+                              </td>
+                              <td className="text-right py-3 px-2">
+                                <span className="text-sm font-bold text-gray-800">
+                                  {p.gmv > 0 ? `¥${Math.round(p.gmv).toLocaleString()}` : "-"}
+                                </span>
+                              </td>
+                              <td className="text-right py-3 px-2 text-gray-600">{p.orders > 0 ? `${p.orders}件` : "-"}</td>
+                              <td className="text-center py-3 px-2">
+                                {p.sharePercent > 0 ? (
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <div className="w-12 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                                      <div className="h-full rounded-full" style={{ width: `${Math.min(p.sharePercent, 100)}%`, backgroundColor: getColor(p.colorIdx) }} />
+                                    </div>
+                                    <span className="text-xs text-gray-500">{p.sharePercent.toFixed(1)}%</span>
+                                  </div>
+                                ) : <span className="text-xs text-gray-400">-</span>}
+                              </td>
+                              <td className="text-center py-3 px-2">
+                                <span className={`text-xs font-medium ${p.cvr >= 1.0 ? "text-green-600" : "text-gray-500"}`}>
+                                  {p.cvr > 0 ? `${p.cvr.toFixed(1)}%` : "-"}
+                                </span>
+                              </td>
+                              <td className="text-center py-3 px-2">
+                                <div className="text-xs">
+                                  <span className="font-semibold text-gray-700">{p.count}回</span>
+                                  <div className="text-[10px] text-gray-400">合計 {formatDurationMinutes(p.totalDuration)}</div>
+                                </div>
+                              </td>
+                              <td className="py-3 px-2 hidden md:table-cell">
+                                {/* Mini exposure pattern bar */}
+                                {videoDuration > 0 && (
+                                  <div className="relative h-3 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: 100 }}>
+                                    {p.segments.map((seg, si) => {
+                                      const left = (seg.time_start / videoDuration) * 100;
+                                      const width = ((seg.time_end - seg.time_start) / videoDuration) * 100;
+                                      return (
+                                        <div key={si} className="absolute top-0 h-full rounded-sm"
+                                          style={{ left: `${left}%`, width: `${Math.max(1, width)}%`, backgroundColor: getColor(p.colorIdx) }}
+                                          title={`${formatTime(seg.time_start)} - ${formatTime(seg.time_end)}`}
+                                        />
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
             {/* ── KPI Cards ── */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <div className="rounded-xl bg-white border border-gray-200 p-4 shadow-sm">
@@ -673,164 +904,6 @@ export default function AnalyticsSection({ reports1, videoData }) {
                 </div>
               ))}
             </div>
-
-            {/* ── Trend Chart (from Excel with real timestamps) ── */}
-            {trendChartOptions && (
-              <div className="rounded-xl bg-white border border-gray-200 p-3 shadow-sm">
-                <div className="flex items-center gap-2 mb-2 px-1">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
-                    fill="none" stroke="currentColor" strokeWidth="2" className="text-purple-500">
-                    <circle cx="12" cy="12" r="10" /><polyline points="12 6 12 12 16 14" />
-                  </svg>
-                  <span className="text-xs font-semibold text-gray-600">配信パフォーマンス</span>
-                  <span className="text-[10px] text-gray-400">（売上・視聴者推移 + 商品露出タイムライン）</span>
-                </div>
-                <HighchartsReact highcharts={Highcharts} options={trendChartOptions} />
-
-                {/* ── Integrated Product Color Bar ── */}
-                {exposures.length > 0 && videoDuration > 0 && (
-                  <div className="mt-1 px-1">
-                    <div className="relative w-full h-6 bg-gray-100 rounded overflow-hidden">
-                      {exposures.map((exp, idx) => {
-                        const left = (exp.time_start / videoDuration) * 100;
-                        const width = ((exp.time_end - exp.time_start) / videoDuration) * 100;
-                        const ci = exposureStats.colorMap[exp.product_name] ?? 0;
-                        return (
-                          <div key={exp.id || idx}
-                            className="absolute top-0 h-full rounded-sm cursor-pointer transition-opacity hover:opacity-90"
-                            style={{
-                              left: `${Math.max(0, left)}%`,
-                              width: `${Math.max(0.3, width)}%`,
-                              backgroundColor: getColor(ci),
-                              opacity: Math.max(0.5, exp.confidence || 0.8),
-                            }}
-                            title={`${exp.product_name} (${formatTime(exp.time_start)} - ${formatTime(exp.time_end)})`}
-                          />
-                        );
-                      })}
-                    </div>
-                    <div className="flex items-center justify-between mt-1">
-                      <span className="text-[9px] text-gray-400">商品露出タイムライン（{exposureStats.uniqueProducts.length}商品 / {exposures.length}セグメント）</span>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Phase-based Chart (fallback if no trend data) ── */}
-            {!trendChartOptions && agg.cumulativeGmv.length > 1 && (
-              <div className="rounded-xl bg-white border border-gray-200 p-3 shadow-sm">
-                <HighchartsReact highcharts={Highcharts} options={chartOptions} />
-                {/* Color bar for fallback chart too */}
-                {exposures.length > 0 && videoDuration > 0 && (
-                  <div className="mt-1 px-1">
-                    <div className="relative w-full h-6 bg-gray-100 rounded overflow-hidden">
-                      {exposures.map((exp, idx) => {
-                        const left = (exp.time_start / videoDuration) * 100;
-                        const width = ((exp.time_end - exp.time_start) / videoDuration) * 100;
-                        const ci = exposureStats.colorMap[exp.product_name] ?? 0;
-                        return (
-                          <div key={exp.id || idx}
-                            className="absolute top-0 h-full rounded-sm"
-                            style={{ left: `${Math.max(0, left)}%`, width: `${Math.max(0.3, width)}%`, backgroundColor: getColor(ci), opacity: 0.7 }}
-                          />
-                        );
-                      })}
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ── Product Ranking Table (from exposures + sales data) ── */}
-            {productRanking.length > 0 && (
-              <div className="rounded-xl bg-white border border-gray-200 shadow-sm">
-                <div className="p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="text-amber-500">
-                      <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
-                    </svg>
-                    <span className="text-sm font-semibold text-gray-700">商品別売上ランキング</span>
-                    <span className="text-xs text-gray-400">（{productRanking.length}商品）</span>
-                  </div>
-
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-gray-200">
-                          <th className="text-left text-[10px] text-gray-400 font-medium py-2 pr-2 w-8">#</th>
-                          <th className="text-left text-[10px] text-gray-400 font-medium py-2 pr-4">商品名</th>
-                          <th className="text-right text-[10px] text-gray-400 font-medium py-2 px-2">売上</th>
-                          <th className="text-right text-[10px] text-gray-400 font-medium py-2 px-2">注文</th>
-                          <th className="text-center text-[10px] text-gray-400 font-medium py-2 px-2">登場</th>
-                          <th className="text-right text-[10px] text-gray-400 font-medium py-2 px-2">合計露出</th>
-                          <th className="text-left text-[10px] text-gray-400 font-medium py-2 px-2 hidden md:table-cell" style={{ minWidth: 100 }}>露出パターン</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {productRanking.map((p, i) => {
-                          const maxGmv = productRanking[0]?.gmv || 1;
-                          const barWidth = maxGmv > 0 ? Math.max((p.gmv / maxGmv) * 100, 5) : 5;
-                          const rankBadge = i === 0 ? "bg-amber-400 text-white" : i === 1 ? "bg-gray-400 text-white" : i === 2 ? "bg-orange-400 text-white" : "bg-gray-200 text-gray-600";
-
-                          return (
-                            <tr key={p.name} className="border-b border-gray-50 last:border-0 hover:bg-gray-50 transition-colors">
-                              <td className="py-2.5 pr-2">
-                                <span className={`inline-flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${rankBadge}`}>{i + 1}</span>
-                              </td>
-                              <td className="py-2.5 pr-4">
-                                <div className="flex items-center gap-2">
-                                  <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: getColor(p.colorIdx) }} />
-                                  <span className="text-sm font-medium text-gray-800 truncate max-w-[200px]" title={p.name}>{p.name}</span>
-                                </div>
-                                {p.gmv > 0 && (
-                                  <div className="mt-1 ml-4">
-                                    <div className="h-1 bg-gray-100 rounded-full overflow-hidden" style={{ width: '100px' }}>
-                                      <div className="h-full rounded-full transition-all duration-500" style={{ width: `${barWidth}%`, backgroundColor: getColor(p.colorIdx) }} />
-                                    </div>
-                                  </div>
-                                )}
-                              </td>
-                              <td className="text-right py-2.5 px-2">
-                                <span className="text-sm font-bold text-gray-800">
-                                  {p.gmv > 0 ? (p.gmv >= 10000 ? `¥${(p.gmv / 10000).toFixed(1)}万` : `¥${Math.round(p.gmv).toLocaleString()}`) : "-"}
-                                </span>
-                              </td>
-                              <td className="text-right py-2.5 px-2 text-gray-600">{p.orders > 0 ? `${p.orders}件` : "-"}</td>
-                              <td className="text-center py-2.5 px-2">
-                                <span className="inline-flex items-center gap-1 text-xs">
-                                  <span className="font-semibold text-gray-700">{p.count}回</span>
-                                </span>
-                              </td>
-                              <td className="text-right py-2.5 px-2">
-                                <span className="text-xs font-medium text-gray-600">{formatTime(p.totalDuration)}</span>
-                              </td>
-                              <td className="py-2.5 px-2 hidden md:table-cell">
-                                {/* Mini exposure pattern bar */}
-                                {videoDuration > 0 && (
-                                  <div className="relative h-3 bg-gray-100 rounded-full overflow-hidden" style={{ minWidth: 100 }}>
-                                    {p.segments.map((seg, si) => {
-                                      const left = (seg.time_start / videoDuration) * 100;
-                                      const width = ((seg.time_end - seg.time_start) / videoDuration) * 100;
-                                      return (
-                                        <div key={si} className="absolute top-0 h-full rounded-sm"
-                                          style={{ left: `${left}%`, width: `${Math.max(1, width)}%`, backgroundColor: getColor(p.colorIdx) }}
-                                          title={`${formatTime(seg.time_start)} - ${formatTime(seg.time_end)}`}
-                                        />
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              </div>
-            )}
 
             {/* ── Expandable Gantt Chart Detail ── */}
             {exposures.length > 0 && videoDuration > 0 && (
