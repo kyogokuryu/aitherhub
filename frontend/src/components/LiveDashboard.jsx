@@ -154,6 +154,16 @@ const LiveDashboard = ({ videoId, liveUrl, username, title, onClose }) => {
   const [streamEnded, setStreamEnded] = useState(false);
   const [elapsedTime, setElapsedTime] = useState(0);
   const [error, setError] = useState(null);
+  const [loadProgress, setLoadProgress] = useState(0);
+  const [loadStep, setLoadStep] = useState(0); // 0-5
+  const loadSteps = [
+    { label: 'モニター起動中...', pct: 10 },
+    { label: 'TikTokライブに接続中...', pct: 30 },
+    { label: 'SSEストリーム確立中...', pct: 50 },
+    { label: 'ストリームURL取得中...', pct: 70 },
+    { label: 'メトリクス受信待ち...', pct: 85 },
+    { label: '接続完了', pct: 100 },
+  ];
 
   const sseRef = useRef(null);
   const timerRef = useRef(null);
@@ -224,21 +234,49 @@ const LiveDashboard = ({ videoId, liveUrl, username, title, onClose }) => {
     clearInterval(timerRef.current);
   }, []);
 
+  // Smooth progress animation
+  useEffect(() => {
+    const target = loadSteps[loadStep]?.pct || 0;
+    if (loadProgress >= target) return;
+    const timer = setInterval(() => {
+      setLoadProgress(prev => {
+        if (prev >= target) { clearInterval(timer); return target; }
+        return Math.min(prev + 1, target);
+      });
+    }, 40);
+    return () => clearInterval(timer);
+  }, [loadStep]);
+
   // Connect SSE
   useEffect(() => {
     if (!videoId) return;
 
-    // Start monitoring
-    VideoService.startLiveMonitor(videoId, liveUrl).catch(err => {
-      console.error('Failed to start monitor:', err);
-    });
+    // Step 0: Start monitoring
+    setLoadStep(0);
+    VideoService.startLiveMonitor(videoId, liveUrl)
+      .then(() => {
+        setLoadStep(1); // Step 1: Connected to TikTok
+      })
+      .catch(err => {
+        console.error('Failed to start monitor:', err);
+        setLoadStep(1); // Continue anyway
+      });
+
+    // Step 2: SSE stream
+    setTimeout(() => setLoadStep(2), 3000);
 
     // Connect SSE
     sseRef.current = VideoService.streamLiveEvents({
       videoId,
-      onMetrics: handleMetrics,
+      onMetrics: (data) => {
+        setLoadStep(prev => (prev < 5 ? 5 : prev)); // Step 5: Complete
+        handleMetrics(data);
+      },
       onAdvice: handleAdvice,
-      onStreamUrl: handleStreamUrl,
+      onStreamUrl: (data) => {
+        setLoadStep(prev => Math.max(prev, 3)); // Step 3: Stream URL received
+        handleStreamUrl(data);
+      },
       onStreamEnded: handleStreamEnded,
       onError: (err) => {
         console.error('LiveSSE error:', err);
@@ -248,8 +286,14 @@ const LiveDashboard = ({ videoId, liveUrl, username, title, onClose }) => {
 
     setIsConnected(true);
 
+    // Step 4: Waiting for metrics (if not received yet)
+    const metricsTimer = setTimeout(() => {
+      setLoadStep(prev => (prev < 4 ? 4 : prev));
+    }, 8000);
+
     return () => {
       if (sseRef.current) sseRef.current.close();
+      clearTimeout(metricsTimer);
     };
   }, [videoId, liveUrl]);
 
@@ -302,12 +346,42 @@ const LiveDashboard = ({ videoId, liveUrl, username, title, onClose }) => {
                 className="max-w-full max-h-full object-contain"
               />
             ) : (
-              <div className="text-center">
-                <div className="w-24 h-24 rounded-full bg-gradient-to-r from-[#FF0050] to-[#00F2EA] flex items-center justify-center mx-auto mb-4 animate-pulse">
+              <div className="text-center w-80">
+                {/* Animated icon */}
+                <div className="w-24 h-24 rounded-full bg-gradient-to-r from-[#FF0050] to-[#00F2EA] flex items-center justify-center mx-auto mb-6 animate-pulse shadow-lg shadow-pink-500/30">
                   <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
                 </div>
-                <p className="text-gray-400 text-sm">ライブ映像を読み込み中...</p>
-                <p className="text-gray-600 text-xs mt-2">TikTokライブに接続しています</p>
+
+                {/* Progress percentage */}
+                <p className="text-white text-3xl font-bold mb-2">{loadProgress}%</p>
+
+                {/* Current step label */}
+                <p className="text-gray-300 text-sm mb-4">{loadSteps[loadStep]?.label || '準備中...'}</p>
+
+                {/* Progress bar */}
+                <div className="w-full bg-gray-700 rounded-full h-2 mb-4 overflow-hidden">
+                  <div
+                    className="h-full rounded-full bg-gradient-to-r from-[#FF0050] to-[#00F2EA] transition-all duration-300 ease-out"
+                    style={{ width: `${loadProgress}%` }}
+                  />
+                </div>
+
+                {/* Step indicators */}
+                <div className="space-y-2 text-left">
+                  {loadSteps.slice(0, -1).map((step, i) => (
+                    <div key={i} className={`flex items-center gap-2 text-xs transition-all duration-300 ${i <= loadStep ? 'text-gray-300' : 'text-gray-600'}`}>
+                      <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 ${
+                        i < loadStep ? 'bg-green-500 text-white' : i === loadStep ? 'bg-gradient-to-r from-[#FF0050] to-[#00F2EA] text-white animate-pulse' : 'bg-gray-700 text-gray-500'
+                      }`}>
+                        {i < loadStep ? '✓' : i + 1}
+                      </span>
+                      <span>{step.label.replace('...', '')}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Estimated time */}
+                <p className="text-gray-600 text-[10px] mt-4">通常10〜30秒で接続されます</p>
               </div>
             )}
 
