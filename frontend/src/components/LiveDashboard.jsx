@@ -56,7 +56,7 @@ const AdviceCard = ({ advice, isNew }) => {
             <p className="text-xs text-gray-600 mt-1 italic">→ {advice.action}</p>
           )}
           <p className="text-[10px] text-gray-400 mt-1">
-            {new Date(advice.timestamp * 1000).toLocaleTimeString('ja-JP')}
+            {advice.timestamp ? new Date(typeof advice.timestamp === 'number' ? advice.timestamp * 1000 : advice.timestamp).toLocaleTimeString('ja-JP') : ''}
           </p>
         </div>
       </div>
@@ -130,81 +130,189 @@ const Sparkline = ({ data, color = '#7D01FF', height = 60, label }) => {
   );
 };
 
-// ─── Animated Live Placeholder ─────────────────────────────
-const LivePlaceholder = ({ username, viewerCount, elapsedTime, formatTime, formatNum }) => {
+// ─── HLS Video Player ──────────────────────────────────────
+const HLSVideoPlayer = ({ streamUrl, username }) => {
+  const videoRef = useRef(null);
+  const hlsRef = useRef(null);
+  const [playerState, setPlayerState] = useState('loading'); // loading | playing | error
+  const [errorMsg, setErrorMsg] = useState('');
+
+  useEffect(() => {
+    if (!streamUrl || !videoRef.current) return;
+
+    let hls = null;
+
+    const initHls = async () => {
+      try {
+        // Dynamically import hls.js from CDN
+        if (!window.Hls) {
+          await new Promise((resolve, reject) => {
+            const script = document.createElement('script');
+            script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest';
+            script.onload = resolve;
+            script.onerror = reject;
+            document.head.appendChild(script);
+          });
+        }
+
+        const Hls = window.Hls;
+
+        if (Hls.isSupported()) {
+          hls = new Hls({
+            enableWorker: true,
+            lowLatencyMode: true,
+            backBufferLength: 30,
+            maxBufferLength: 10,
+            maxMaxBufferLength: 20,
+            liveSyncDurationCount: 3,
+            liveMaxLatencyDurationCount: 6,
+            liveDurationInfinity: true,
+            fragLoadingTimeOut: 20000,
+            manifestLoadingTimeOut: 20000,
+            levelLoadingTimeOut: 20000,
+          });
+
+          hlsRef.current = hls;
+
+          hls.on(Hls.Events.ERROR, (event, data) => {
+            console.warn('HLS error:', data.type, data.details);
+            if (data.fatal) {
+              switch (data.type) {
+                case Hls.ErrorTypes.NETWORK_ERROR:
+                  console.log('HLS: Fatal network error, trying to recover...');
+                  hls.startLoad();
+                  break;
+                case Hls.ErrorTypes.MEDIA_ERROR:
+                  console.log('HLS: Fatal media error, trying to recover...');
+                  hls.recoverMediaError();
+                  break;
+                default:
+                  setPlayerState('error');
+                  setErrorMsg('ストリームの再生に失敗しました');
+                  break;
+              }
+            }
+          });
+
+          hls.on(Hls.Events.MANIFEST_PARSED, () => {
+            console.log('HLS: Manifest parsed, starting playback');
+            videoRef.current.play().then(() => {
+              setPlayerState('playing');
+            }).catch(err => {
+              console.warn('HLS: Autoplay blocked, muting and retrying');
+              videoRef.current.muted = true;
+              videoRef.current.play().then(() => {
+                setPlayerState('playing');
+              }).catch(() => {
+                setPlayerState('error');
+                setErrorMsg('自動再生がブロックされました');
+              });
+            });
+          });
+
+          hls.loadSource(streamUrl);
+          hls.attachMedia(videoRef.current);
+
+        } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
+          // Safari native HLS support
+          videoRef.current.src = streamUrl;
+          videoRef.current.addEventListener('loadedmetadata', () => {
+            videoRef.current.play().then(() => {
+              setPlayerState('playing');
+            }).catch(() => {
+              videoRef.current.muted = true;
+              videoRef.current.play().then(() => setPlayerState('playing'));
+            });
+          });
+        } else {
+          setPlayerState('error');
+          setErrorMsg('お使いのブラウザはHLS再生に対応していません');
+        }
+      } catch (err) {
+        console.error('HLS init error:', err);
+        setPlayerState('error');
+        setErrorMsg('プレーヤーの初期化に失敗しました');
+      }
+    };
+
+    initHls();
+
+    return () => {
+      if (hls) {
+        hls.destroy();
+        hlsRef.current = null;
+      }
+    };
+  }, [streamUrl]);
+
   return (
-    <div className="flex flex-col items-center justify-center h-full w-full relative overflow-hidden">
-      {/* Animated background rings */}
-      <div className="absolute inset-0 flex items-center justify-center">
-        <div
-          className="absolute w-64 h-64 rounded-full border border-[#FF0050]/10"
-          style={{ animation: 'ping 3s cubic-bezier(0, 0, 0.2, 1) infinite' }}
-        />
-        <div
-          className="absolute w-48 h-48 rounded-full border border-[#00F2EA]/10"
-          style={{ animation: 'ping 3s cubic-bezier(0, 0, 0.2, 1) infinite', animationDelay: '1s' }}
-        />
-        <div
-          className="absolute w-32 h-32 rounded-full border border-[#FF0050]/15"
-          style={{ animation: 'ping 3s cubic-bezier(0, 0, 0.2, 1) infinite', animationDelay: '2s' }}
-        />
-      </div>
+    <div className="w-full h-full relative bg-black flex items-center justify-center">
+      {/* Video element */}
+      <video
+        ref={videoRef}
+        className="w-full h-full object-contain"
+        playsInline
+        autoPlay
+        controls={false}
+        style={{ display: playerState === 'playing' ? 'block' : 'none' }}
+      />
 
-      {/* Main content */}
-      <div className="relative z-10 text-center">
-        {/* Animated live icon */}
-        <div className="w-28 h-28 rounded-full bg-gradient-to-br from-[#FF0050]/20 via-[#FF0050]/10 to-[#00F2EA]/20 flex items-center justify-center mx-auto mb-6 backdrop-blur-sm border border-white/10">
-          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#FF0050]/30 to-[#00F2EA]/30 flex items-center justify-center">
-            <div className="relative">
-              <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="10"/>
-                <circle cx="12" cy="12" r="3"/>
-                <line x1="12" y1="2" x2="12" y2="6" opacity="0.5"/>
-                <line x1="12" y1="18" x2="12" y2="22" opacity="0.5"/>
-                <line x1="2" y1="12" x2="6" y2="12" opacity="0.5"/>
-                <line x1="18" y1="12" x2="22" y2="12" opacity="0.5"/>
-              </svg>
-              {/* Pulsing red dot */}
-              <span className="absolute -top-1 -right-1 flex h-4 w-4">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500"></span>
-              </span>
-            </div>
-          </div>
+      {/* Loading state */}
+      {playerState === 'loading' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center">
+          <div className="w-16 h-16 rounded-full border-4 border-t-[#FF0050] border-r-[#00F2EA] border-b-[#FF0050] border-l-[#00F2EA] animate-spin mb-4"></div>
+          <p className="text-white text-sm">ライブ映像を読み込み中...</p>
+          <p className="text-gray-500 text-xs mt-1">@{username}</p>
         </div>
+      )}
 
-        {/* Title */}
-        <h2 className="text-white text-xl font-bold mb-1">ライブ配信モニタリング中</h2>
-        <p className="text-gray-400 text-sm mb-4">@{username}</p>
-
-        {/* Live stats bar */}
-        <div className="flex items-center justify-center gap-6 mb-6">
-          <div className="flex items-center gap-2 bg-white/5 rounded-full px-4 py-2 backdrop-blur-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#FF0050" strokeWidth="2">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>
+      {/* Error state - show fallback */}
+      {playerState === 'error' && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center text-center px-8">
+          <div className="w-20 h-20 rounded-full bg-gradient-to-br from-[#FF0050]/20 to-[#00F2EA]/20 flex items-center justify-center mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5">
+              <circle cx="12" cy="12" r="10"/>
+              <circle cx="12" cy="12" r="3"/>
+              <line x1="12" y1="2" x2="12" y2="6" opacity="0.5"/>
+              <line x1="12" y1="18" x2="12" y2="22" opacity="0.5"/>
+              <line x1="2" y1="12" x2="6" y2="12" opacity="0.5"/>
+              <line x1="18" y1="12" x2="22" y2="12" opacity="0.5"/>
             </svg>
-            <span className="text-white font-bold text-sm">{formatNum(viewerCount)}</span>
-            <span className="text-gray-500 text-xs">視聴中</span>
           </div>
-          <div className="flex items-center gap-2 bg-white/5 rounded-full px-4 py-2 backdrop-blur-sm">
-            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00F2EA" strokeWidth="2">
-              <circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>
+          <p className="text-white text-sm mb-1">{errorMsg || 'ストリーム接続エラー'}</p>
+          <p className="text-gray-500 text-xs mb-4">ダッシュボードのデータは正常に受信しています</p>
+          <a
+            href={`https://www.tiktok.com/@${username}/live`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 bg-[#FF0050] hover:bg-[#FF0050]/80 text-white text-xs px-4 py-2 rounded-full transition-colors"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
             </svg>
-            <span className="text-white font-bold text-sm">{formatTime(elapsedTime)}</span>
-            <span className="text-gray-500 text-xs">経過</span>
-          </div>
+            TikTokで視聴
+          </a>
         </div>
+      )}
 
-        {/* Data receiving indicator */}
-        <div className="flex items-center justify-center gap-2">
-          <div className="flex gap-1">
-            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse"></div>
-            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" style={{ animationDelay: '0.2s' }}></div>
-            <div className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" style={{ animationDelay: '0.4s' }}></div>
-          </div>
-          <span className="text-green-400 text-xs">リアルタイムデータ受信中</span>
-        </div>
-      </div>
+      {/* Mute indicator overlay */}
+      {playerState === 'playing' && (
+        <button
+          onClick={() => {
+            if (videoRef.current) {
+              videoRef.current.muted = !videoRef.current.muted;
+            }
+          }}
+          className="absolute bottom-4 right-4 bg-black/60 backdrop-blur-sm rounded-full p-2 text-white hover:bg-black/80 transition-colors"
+          title="音声ON/OFF"
+        >
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
+            <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
+            <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
+          </svg>
+        </button>
+      )}
     </div>
   );
 };
@@ -213,6 +321,7 @@ const LivePlaceholder = ({ username, viewerCount, elapsedTime, formatTime, forma
 const LiveDashboard = ({ videoId, liveUrl, username, title, onClose }) => {
   // State
   const [isConnected, setIsConnected] = useState(false);
+  const [streamUrl, setStreamUrl] = useState(null);
   const [metrics, setMetrics] = useState({
     viewer_count: 0,
     like_count: 0,
@@ -347,6 +456,9 @@ const LiveDashboard = ({ videoId, liveUrl, username, title, onClose }) => {
       onStreamUrl: (data) => {
         setLoadStep(prev => Math.max(prev, 3)); // Step 3: Stream URL received
         console.log('LiveDashboard: Stream URL received:', data);
+        if (data && data.stream_url) {
+          setStreamUrl(data.stream_url);
+        }
       },
       onStreamEnded: handleStreamEnded,
       onError: (err) => {
@@ -409,59 +521,76 @@ const LiveDashboard = ({ videoId, liveUrl, username, title, onClose }) => {
         {/* Left: Live Video Area */}
         <div className="flex-1 flex flex-col bg-gradient-to-b from-gray-900 to-black">
           {/* Video Player Area */}
-          <div className="flex-1 relative flex items-center justify-center">
+          <div className="flex-1 relative">
             {showDashboard ? (
-              /* Connected - show live placeholder with animated visualization */
-              <LivePlaceholder
-                username={username}
-                viewerCount={metrics.viewer_count}
-                elapsedTime={elapsedTime}
-                formatTime={formatTime}
-                formatNum={formatNum}
-              />
+              /* Connected - show HLS video player or fallback */
+              streamUrl ? (
+                <HLSVideoPlayer streamUrl={streamUrl} username={username} />
+              ) : (
+                /* No stream URL yet - show waiting state with TikTok link */
+                <div className="w-full h-full flex flex-col items-center justify-center">
+                  <div className="w-16 h-16 rounded-full border-4 border-t-[#FF0050] border-r-[#00F2EA] border-b-[#FF0050] border-l-[#00F2EA] animate-spin mb-4"></div>
+                  <p className="text-white text-sm mb-2">ストリームURLを取得中...</p>
+                  <p className="text-gray-500 text-xs mb-4">データは正常に受信しています</p>
+                  <a
+                    href={`https://www.tiktok.com/@${username}/live`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 bg-[#FF0050] hover:bg-[#FF0050]/80 text-white text-xs px-4 py-2 rounded-full transition-colors"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>
+                    </svg>
+                    TikTokで視聴
+                  </a>
+                </div>
+              )
             ) : (
-              <div className="text-center w-80">
-                {/* Animated icon */}
-                <div className="w-24 h-24 rounded-full bg-gradient-to-r from-[#FF0050] to-[#00F2EA] flex items-center justify-center mx-auto mb-6 animate-pulse shadow-lg shadow-pink-500/30">
-                  <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+              /* Loading state */
+              <div className="w-full h-full flex items-center justify-center">
+                <div className="text-center w-80">
+                  {/* Animated icon */}
+                  <div className="w-24 h-24 rounded-full bg-gradient-to-r from-[#FF0050] to-[#00F2EA] flex items-center justify-center mx-auto mb-6 animate-pulse shadow-lg shadow-pink-500/30">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+                  </div>
+
+                  {/* Progress percentage */}
+                  <p className="text-white text-3xl font-bold mb-2">{loadProgress}%</p>
+
+                  {/* Current step label */}
+                  <p className="text-gray-300 text-sm mb-4">{loadSteps[loadStep]?.label || '準備中...'}</p>
+
+                  {/* Progress bar */}
+                  <div className="w-full bg-gray-700 rounded-full h-2 mb-4 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-[#FF0050] to-[#00F2EA] transition-all duration-300 ease-out"
+                      style={{ width: `${loadProgress}%` }}
+                    />
+                  </div>
+
+                  {/* Step indicators */}
+                  <div className="space-y-2 text-left">
+                    {loadSteps.slice(0, -1).map((step, i) => (
+                      <div key={i} className={`flex items-center gap-2 text-xs transition-all duration-300 ${i <= loadStep ? 'text-gray-300' : 'text-gray-600'}`}>
+                        <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 ${
+                          i < loadStep ? 'bg-green-500 text-white' : i === loadStep ? 'bg-gradient-to-r from-[#FF0050] to-[#00F2EA] text-white animate-pulse' : 'bg-gray-700 text-gray-500'
+                        }`}>
+                          {i < loadStep ? '✓' : i + 1}
+                        </span>
+                        <span>{step.label.replace('...', '')}</span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Estimated time */}
+                  <p className="text-gray-600 text-[10px] mt-4">通常10〜30秒で接続されます</p>
                 </div>
-
-                {/* Progress percentage */}
-                <p className="text-white text-3xl font-bold mb-2">{loadProgress}%</p>
-
-                {/* Current step label */}
-                <p className="text-gray-300 text-sm mb-4">{loadSteps[loadStep]?.label || '準備中...'}</p>
-
-                {/* Progress bar */}
-                <div className="w-full bg-gray-700 rounded-full h-2 mb-4 overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-[#FF0050] to-[#00F2EA] transition-all duration-300 ease-out"
-                    style={{ width: `${loadProgress}%` }}
-                  />
-                </div>
-
-                {/* Step indicators */}
-                <div className="space-y-2 text-left">
-                  {loadSteps.slice(0, -1).map((step, i) => (
-                    <div key={i} className={`flex items-center gap-2 text-xs transition-all duration-300 ${i <= loadStep ? 'text-gray-300' : 'text-gray-600'}`}>
-                      <span className={`w-4 h-4 rounded-full flex items-center justify-center text-[10px] flex-shrink-0 ${
-                        i < loadStep ? 'bg-green-500 text-white' : i === loadStep ? 'bg-gradient-to-r from-[#FF0050] to-[#00F2EA] text-white animate-pulse' : 'bg-gray-700 text-gray-500'
-                      }`}>
-                        {i < loadStep ? '✓' : i + 1}
-                      </span>
-                      <span>{step.label.replace('...', '')}</span>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Estimated time */}
-                <p className="text-gray-600 text-[10px] mt-4">通常10〜30秒で接続されます</p>
               </div>
             )}
 
-            {/* Overlay Metrics (only when dashboard is showing) */}
+            {/* Overlay Metrics (only when video is playing) */}
             {showDashboard && (
-              <div className="absolute top-4 left-4 flex gap-2">
+              <div className="absolute top-4 left-4 flex gap-2 z-10">
                 <div className="bg-black/60 backdrop-blur-sm rounded-full px-3 py-1 flex items-center gap-1">
                   <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#FF0050" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
                   <span className="text-white text-xs font-bold">{formatNum(metrics.viewer_count)}</span>
